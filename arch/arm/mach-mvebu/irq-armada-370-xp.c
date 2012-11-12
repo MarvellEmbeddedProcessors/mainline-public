@@ -33,6 +33,7 @@
 #define ARMADA_370_XP_INT_CONTROL		(0x00)
 #define ARMADA_370_XP_INT_SET_ENABLE_OFFS	(0x30)
 #define ARMADA_370_XP_INT_CLEAR_ENABLE_OFFS	(0x34)
+#define ARMADA_370_XP_INT_SOURCE_CTL(irq)	(0x100 + irq*4)
 
 #define ARMADA_370_XP_CPU_INTACK_OFFS		(0x44)
 
@@ -40,28 +41,68 @@
 #define ARMADA_370_XP_IN_DRBEL_MSK_OFFS          (0xc)
 #define ARMADA_370_XP_IN_DRBEL_CAUSE_OFFS        (0x8)
 
+#define ARMADA_370_XP_MAX_PER_CPU_IRQS		(28)
+
 #define ACTIVE_DOORBELLS			(8)
+
+static DEFINE_RAW_SPINLOCK(irq_controller_lock);
 
 static void __iomem *per_cpu_int_base;
 static void __iomem *main_int_base;
 static struct irq_domain *armada_370_xp_mpic_domain;
 
+/*
+ * For shared global interrupts, mask/unmask global enable bit
+ * For CPU interrtups, mask/unmask the calling CPU's bit
+ */
 static void armada_370_xp_irq_mask(struct irq_data *d)
 {
-	writel(irqd_to_hwirq(d),
-	       per_cpu_int_base + ARMADA_370_XP_INT_SET_MASK_OFFS);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	if (hwirq > ARMADA_370_XP_MAX_PER_CPU_IRQS)
+		writel(hwirq, main_int_base +
+				ARMADA_370_XP_INT_CLEAR_ENABLE_OFFS);
+	else
+		writel(hwirq, main_int_base +
+				ARMADA_370_XP_INT_SET_MASK_OFFS);
 }
 
 static void armada_370_xp_irq_unmask(struct irq_data *d)
 {
-	writel(irqd_to_hwirq(d),
-	       per_cpu_int_base + ARMADA_370_XP_INT_CLEAR_MASK_OFFS);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	if (hwirq > ARMADA_370_XP_MAX_PER_CPU_IRQS)
+		writel(hwirq, main_int_base +
+				ARMADA_370_XP_INT_SET_ENABLE_OFFS);
+	else
+		writel(hwirq, main_int_base +
+				ARMADA_370_XP_INT_CLEAR_MASK_OFFS);
 }
 
 #ifdef CONFIG_SMP
 static int armada_xp_set_affinity(struct irq_data *d,
 				  const struct cpumask *mask_val, bool force)
 {
+	unsigned long reg;
+	unsigned long new_mask = 0;
+	unsigned long online_mask = 0;
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+	int cpu;
+
+	for_each_cpu(cpu, cpu_online_mask)
+		online_mask |= 1 << cpu_logical_map(cpu);
+
+	for_each_cpu(cpu, mask_val)
+		new_mask |= 1 << cpu_logical_map(cpu);
+
+	raw_spin_lock(&irq_controller_lock);
+
+	reg = readl(main_int_base + ARMADA_370_XP_INT_SOURCE_CTL(hwirq));
+	reg = (reg & (~online_mask)) | new_mask;
+	writel(reg, main_int_base + ARMADA_370_XP_INT_SOURCE_CTL(hwirq));
+
+	raw_spin_unlock(&irq_controller_lock);
+
 	return 0;
 }
 #endif
