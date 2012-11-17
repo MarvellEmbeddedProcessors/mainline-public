@@ -18,5 +18,6 @@
 #define __CLK_MVEBU_H_
 
 void __init mvebu_clocks_init(void);
+void mvebu_clk_gating_init(void);
 
 #endif
