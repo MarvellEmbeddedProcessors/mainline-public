@@ -27,6 +27,35 @@
 		    <0xd0021870 0x58>;
 	};
 
+	cpus {
+	    #address-cells = <1>;
+	    #size-cells = <0>;
+
+	    cpu@0 {
+		compatible = "marvell,sheeva-v7";
+		reg = <0>;
+		clocks = <&cpuclk 0>;
+	    };
+
+	    cpu@1 {
+		compatible = "marvell,sheeva-v7";
+		reg = <1>;
+		clocks = <&cpuclk 1>;
+	    };
+
+	    cpu@2 {
+		compatible = "marvell,sheeva-v7";
+		reg = <2>;
+		clocks = <&cpuclk 2>;
+	    };
+
+	    cpu@3 {
+		compatible = "marvell,sheeva-v7";
+		reg = <3>;
+		clocks = <&cpuclk 3>;
+	    };
+	};
+
 	soc {
 		serial@d0012200 {
 				compatible = "ns16550";
@@ -45,6 +74,19 @@
 
 		timer@d0020300 {
 				marvell,timer-25Mhz;
+		};
+
+		coreclk: mvebu-sar@d0018230 {
+			compatible = "marvell,armada-xp-core-clocks";
+			reg = <0xd0018230 0x08>;
+			#clock-cells = <1>;
+		};
+
+		cpuclk: clock-complex@d0018700 {
+			#clock-cells = <1>;
+			compatible = "marvell,armada-xp-cpu-clockctrl";
+			reg = <0xd0018700 0xA0>;
+			clocks = <&coreclk 1>;
 		};
 
 		system-controller@d0018200 {

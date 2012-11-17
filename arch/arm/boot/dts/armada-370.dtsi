@@ -75,5 +75,12 @@
 			#interrupts-cells = <2>;
 			interrupts = <91>;
 		};
+
+		coreclk: mvebu-sar@d0018230 {
+			compatible = "marvell,armada-370-core-clocks";
+			reg = <0xd0018230 0x08>;
+			#clock-cells = <1>;
+		};
+
 	};
 };
