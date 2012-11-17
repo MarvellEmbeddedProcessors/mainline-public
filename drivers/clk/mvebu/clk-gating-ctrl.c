@@ -101,6 +101,53 @@ static void __init mvebu_clk_gating_setup(
  * SoC specific clock gating control
  */
 
+#ifdef CONFIG_MACH_ARMADA_370
+static const struct mvebu_soc_descr __initconst armada_370_gating_descr[] = {
+	{ "audio", NULL, 0 },
+	{ "pex0_en", NULL, 1 },
+	{ "pex1_en", NULL,  2 },
+	{ "ge1", NULL, 3 },
+	{ "ge0", NULL, 4 },
+	{ "pex0", NULL, 5 },
+	{ "pex1", NULL, 9 },
+	{ "sata0", NULL, 15 },
+	{ "sdio", NULL, 17 },
+	{ "tdm", NULL, 25 },
+	{ "ddr", NULL, 28 },
+	{ "sata1", NULL, 30 },
+	{ }
+};
+#endif
+
+#ifdef CONFIG_MACH_ARMADA_XP
+static const struct mvebu_soc_descr __initconst armada_xp_gating_descr[] = {
+	{ "audio", NULL, 0 },
+	{ "ge3", NULL, 1 },
+	{ "ge2", NULL,  2 },
+	{ "ge1", NULL, 3 },
+	{ "ge0", NULL, 4 },
+	{ "pex0", NULL, 5 },
+	{ "pex1", NULL, 6 },
+	{ "pex2", NULL, 7 },
+	{ "pex3", NULL, 8 },
+	{ "bp", NULL, 13 },
+	{ "sata0lnk", NULL, 14 },
+	{ "sata0", NULL, 15 },
+	{ "lcd", NULL, 16 },
+	{ "sdio", NULL, 17 },
+	{ "usb0", NULL, 18 },
+	{ "usb1", NULL, 19 },
+	{ "usb2", NULL, 20 },
+	{ "xor0", NULL, 22 },
+	{ "crypto", NULL, 23 },
+	{ "tdm", NULL, 25 },
+	{ "xor1", NULL, 28 },
+	{ "sata1lnk", NULL, 29 },
+	{ "sata1", NULL, 30 },
+	{ }
+};
+#endif
+
 #ifdef CONFIG_ARCH_DOVE
 static const struct mvebu_soc_descr __initconst dove_gating_descr[] = {
 	{ "usb0", NULL, 0 },
@@ -147,6 +194,20 @@ static const struct mvebu_soc_descr __initconst kirkwood_gating_descr[] = {
 #endif
 
 static const __initdata struct of_device_id clk_gating_match[] = {
+#ifdef CONFIG_MACH_ARMADA_370
+	{
+		.compatible = "marvell,armada-370-gating-clock",
+		.data = armada_370_gating_descr,
+	},
+#endif
+
+#ifdef CONFIG_MACH_ARMADA_XP
+	{
+		.compatible = "marvell,armada-xp-gating-clock",
+		.data = armada_xp_gating_descr,
+	},
+#endif
+
 #ifdef CONFIG_ARCH_DOVE
 	{
 		.compatible = "marvell,dove-gating-clock",

@@ -12,6 +12,7 @@ config ARCH_MVEBU
 	select CLKDEV_LOOKUP
 	select MVEBU_CLK_CORE
 	select MVEBU_CLK_CPU
+	select MVEBU_CLK_GATING
 
 if ARCH_MVEBU
 
