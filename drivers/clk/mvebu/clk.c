@@ -16,8 +16,22 @@
 #include <linux/clk/mvebu.h>
 #include <linux/of.h>
 #include "clk-core.h"
+#include "clk-cpu.h"
+
+static const __initconst struct of_device_id clk_match[] = {
+#ifdef CONFIG_MVEBU_CLK_CPU
+	{
+		.compatible = "marvell,armada-xp-cpu-clockctrl",
+		.data = of_cpu_clk_setup,
+	},
+#endif
+	{
+		/* sentinel */
+	}
+};
 
 void __init mvebu_clocks_init(void)
 {
 	mvebu_core_clk_init();
+	of_clk_init(clk_match);
 }
