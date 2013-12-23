@@ -304,6 +304,7 @@ enum {
 	MV5_LTMODE		= 0x30,
 	MV5_PHY_CTL		= 0x0C,
 	SATA_IFCFG		= 0x050,
+	LP_PHY_CTL		= 0x058,
 
 	MV_M2_PREAMP_MASK	= 0x7e0,
 
@@ -1353,6 +1354,7 @@ static int mv_scr_write(struct ata_link *link, unsigned int sc_reg_in, u32 val)
 
 	if (ofs != 0xffffffffU) {
 		void __iomem *addr = mv_ap_base(link->ap) + ofs;
+		void __iomem *lp_phy_addr = mv_ap_base(link->ap) + LP_PHY_CTL;
 		if (sc_reg_in == SCR_CONTROL) {
 			/*
 			 * Workaround for 88SX60x1 FEr SATA#26:
@@ -1369,6 +1371,14 @@ static int mv_scr_write(struct ata_link *link, unsigned int sc_reg_in, u32 val)
 			 */
 			if ((val & 0xf) == 1 || (readl(addr) & 0xf) == 1)
 				val |= 0xf000;
+
+			/*
+			 * Setting PHY speed according to SControl speed
+			 */
+			if ((val & 0xf0) == 0x10)
+				writelfl(0x7, lp_phy_addr);
+			else
+				writelfl(0x227, lp_phy_addr);
 		}
 		writelfl(val, addr);
 		return 0;
