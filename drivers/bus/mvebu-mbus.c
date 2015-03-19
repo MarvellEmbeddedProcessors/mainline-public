@@ -934,6 +934,8 @@ static int mvebu_mbus_suspend(void)
 	struct mvebu_mbus_state *s = &mbus_state;
 	int win;
 
+	return 0;
+
 	if (!s->mbusbridge_base)
 		return -ENODEV;
 
@@ -967,7 +969,7 @@ static void mvebu_mbus_resume(void)
 {
 	struct mvebu_mbus_state *s = &mbus_state;
 	int win;
-
+	return;
 	writel(s->mbus_bridge_ctrl,
 	       s->mbusbridge_base + MBUS_BRIDGE_CTRL_OFF);
 	writel(s->mbus_bridge_base,
