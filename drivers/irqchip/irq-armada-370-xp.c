@@ -519,7 +519,7 @@ static void armada_370_xp_mpic_resume(void)
 		if (virq == 0)
 			continue;
 
-		if (irq != ARMADA_370_XP_TIMER0_PER_CPU_IRQ)
+		if (is_percpu_irq(irq))
 			writel(irq, per_cpu_int_base +
 			       ARMADA_370_XP_INT_CLEAR_MASK_OFFS);
 		else
