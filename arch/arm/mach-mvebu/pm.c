@@ -176,6 +176,7 @@ static int mvebu_pm_enter(suspend_state_t state)
 		cpu_do_idle();
 		break;
 	case PM_SUSPEND_MEM:
+		pr_warn("None of the wakeup sources will be taken into account in suspend to ram\n");
 		mvebu_enter_suspend();
 	default:
 		return -EINVAL;
