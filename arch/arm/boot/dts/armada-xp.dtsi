@@ -131,8 +131,8 @@
 				status = "disabled";
 			};
 
-			system-controller@18200 {
-				compatible = "marvell,armada-370-xp-system-controller";
+			syscon: system-controller@18200 {
+				compatible = "marvell,armada-370-xp-system-controller", "syscon";
 				reg = <0x18200 0x500>;
 			};
 
