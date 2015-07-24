@@ -226,6 +226,12 @@
 				#clock-cells = <1>;
 			};
 
+			serdes: serdes@18270 {
+				compatible = "marvell,mv88f6710-serdes";
+				reg = <0x18270 0x04>;
+				#phy-cells = <2>;
+			};
+
 			thermal@18300 {
 				compatible = "marvell,armada370-thermal";
 				reg = <0x18300 0x4
