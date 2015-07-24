@@ -1,0 +1,25 @@
+* Marvell EBU SERDES PHY
+
+Allows to control the SERDES lanes, which are used for PCIe, SATA,
+SGMII and QSGMII. This binding applies to the Armada 370 and Armada XP
+SoCs.
+
+Required properties:
+- compatible: depending on the SoC, one of the following values:
+   marvell,mv88f6710-serdes
+   marvell,mv78230-serdes
+   marvell,mv78260-serdes
+   marvell,mv78460-serdes
+- reg: base address and length of the registers
+- #phys-cells: should be 2
+   the first cell corresponds to the SERDES lane number
+   the second cell corresponds to the mode into which the SERDES lane
+   should be configured
+
+Example:
+
+	serdes@18270 {
+		compatible = "marvell,mv78460-serdes";
+		reg = <0x18270 0x8>;
+		#phy-cells = <2>;
+	};
