@@ -32,6 +32,11 @@
 #include <linux/of_address.h>
 #include <linux/phy.h>
 #include <linux/clk.h>
+#include <linux/phy/phy.h>
+#include <linux/regmap.h>
+#include <linux/iopoll.h>
+#include <linux/mfd/syscon.h>
+#include <linux/mfd/syscon/mvebu-system-controller.h>
 
 /* Registers */
 #define MVNETA_RXQ_CONFIG_REG(q)                (0x1400 + ((q) << 2))
@@ -92,8 +97,12 @@
 #define      MVNETA_TX_FIFO_EMPTY                BIT(8)
 #define MVNETA_RX_MIN_FRAME_SIZE                 0x247c
 #define MVNETA_SERDES_CFG			 0x24A0
-#define      MVNETA_SGMII_SERDES_PROTO		 0x0cc7
-#define      MVNETA_QSGMII_SERDES_PROTO		 0x0667
+#define      MVNETA_SERDES_PU			 0x7
+#define      MVNETA_SERDES_PROTO_SHIFT		 5
+#define      MVNETA_SERDES_PROTO_MASK		 (0x1ff << MVNETA_SERDES_PROTO_SHIFT)
+#define      MVNETA_SERDES_PROTO_SGMII		 (0x66  << MVNETA_SERDES_PROTO_SHIFT)
+#define      MVNETA_SERDES_PROTO_QSGMII		 (0x33  << MVNETA_SERDES_PROTO_SHIFT)
+#define MVNETA_SERDES_STAT			 0x24A4
 #define MVNETA_TYPE_PRIO                         0x24bc
 #define      MVNETA_FORCE_UNI                    BIT(21)
 #define MVNETA_TXQ_CMD_1                         0x24e4
@@ -191,6 +200,19 @@
 #define      MVNETA_GMAC_AN_FLOW_CTRL_EN         BIT(11)
 #define      MVNETA_GMAC_CONFIG_FULL_DUPLEX      BIT(12)
 #define      MVNETA_GMAC_AN_DUPLEX_EN            BIT(13)
+#define MVNETA_PWR_PLL_CTRL_REG			 0x2e04
+#define      MVNETA_PWR_PLL_SERDES_25MHZ	 (1 << 0)
+#define      MVNETA_PWR_PLL_SERDES_MODE		 (4 << 5)
+#define      MVNETA_PWR_PLL_RSVD		 BIT(11)
+#define      MVNETA_PWR_PLL_PU_TX		 BIT(12)
+#define      MVNETA_PWR_PLL_PU_RX		 BIT(13)
+#define      MVNETA_PWR_PLL_PU_PLL		 BIT(14)
+#define      MVNETA_PWR_PLL_PU_IVREF		 BIT(15)
+#define MVNETA_DIG_LOOPBACK			 0x2e8c
+#define      MVNETA_DIG_LOOPBACK_10_BITS	 (0 << 10)
+#define MVNETA_REF_CLK_SEL			 0x2f18
+#define      MVNETA_REF_CLK_25MHZ		 (1 << 10)
+#define MVNETA_COMPHY_CTRL			 0x2f20
 #define MVNETA_MIB_COUNTERS_BASE                 0x3080
 #define      MVNETA_MIB_LATE_COLLISION           0x7c
 #define MVNETA_DA_FILT_SPEC_MCAST                0x3400
@@ -312,6 +334,9 @@ struct mvneta_port {
 	unsigned int speed;
 	unsigned int tx_csum_limit;
 	int use_inband_status:1;
+
+	struct phy *phy;
+	struct regmap *syscon_regmap;
 };
 
 /* The mvneta_tx_desc and mvneta_rx_desc structures describe the
@@ -2973,35 +2998,91 @@ static void mvneta_conf_mbus_windows(struct mvneta_port *pp,
 	mvreg_write(pp, MVNETA_BASE_ADDR_ENABLE, win_enable);
 }
 
-/* Power up the port */
-static int mvneta_port_power_up(struct mvneta_port *pp, int phy_mode)
+static void mvneta_port_power_off(struct mvneta_port *pp)
 {
-	u32 ctrl;
+	u32 reg;
+
+	if (pp->phy_interface != PHY_INTERFACE_MODE_SGMII &&
+	    pp->phy_interface != PHY_INTERFACE_MODE_QSGMII)
+		return;
+
+	/* Power down the SERDES */
+	reg = mvreg_read(pp, MVNETA_SERDES_CFG);
+	reg &= ~MVNETA_SERDES_PU;
+	mvreg_write(pp, MVNETA_SERDES_CFG, reg);
+
+	/* Unconfigure the SERDES muxing */
+	if (!IS_ERR(pp->phy))
+		phy_power_off(pp->phy);
+}
+
+/* Power up the port */
+static int mvneta_port_power_up(struct mvneta_port *pp)
+{
+	u32 ctrl, reg;
 
 	/* MAC Cause register should be cleared */
 	mvreg_write(pp, MVNETA_UNIT_INTR_CAUSE, 0);
 
 	ctrl = mvreg_read(pp, MVNETA_GMAC_CTRL_2);
 
+	if (pp->phy_interface == PHY_INTERFACE_MODE_SGMII ||
+	    pp->phy_interface == PHY_INTERFACE_MODE_QSGMII) {
+		int ret;
+
+		reg = mvreg_read(pp, MVNETA_SERDES_CFG);
+		reg &= ~(MVNETA_SERDES_PU | MVNETA_SERDES_PROTO_MASK);
+		if (pp->phy_interface == PHY_INTERFACE_MODE_SGMII)
+			reg |= MVNETA_SERDES_PROTO_SGMII;
+		else
+			reg |= MVNETA_SERDES_PROTO_QSGMII;
+		mvreg_write(pp, MVNETA_SERDES_CFG, reg);
+
+		ctrl |= MVNETA_GMAC2_PCS_ENABLE;
+
+		/* Enable QSGMII in the system control register */
+		regmap_update_bits(pp->syscon_regmap,
+				   QSGMII_CTRL1, QSGMII_ENABLE,
+				   (pp->phy_interface == PHY_INTERFACE_MODE_QSGMII) ?
+				   QSGMII_ENABLE : 0);
+
+		if (!IS_ERR(pp->phy))
+			phy_power_on(pp->phy);
+
+		/* Should be 0x8080 on Armada 370 */
+		mvreg_write(pp, MVNETA_COMPHY_CTRL, 0x8084);
+
+		mvreg_write(pp, MVNETA_PWR_PLL_CTRL_REG,
+			    MVNETA_PWR_PLL_PU_IVREF |
+			    MVNETA_PWR_PLL_PU_PLL |
+			    MVNETA_PWR_PLL_PU_RX |
+			    MVNETA_PWR_PLL_PU_TX |
+			    MVNETA_PWR_PLL_RSVD |
+			    MVNETA_PWR_PLL_SERDES_MODE |
+			    MVNETA_PWR_PLL_SERDES_25MHZ);
+
+		mvreg_write(pp, MVNETA_DIG_LOOPBACK,
+			    MVNETA_DIG_LOOPBACK_10_BITS);
+
+		mvreg_write(pp, MVNETA_REF_CLK_SEL,
+			    MVNETA_REF_CLK_25MHZ);
+
+		/* Power-up the PU_PLL, PU_RX, PU_TX */
+		reg = mvreg_read(pp, MVNETA_SERDES_CFG);
+		reg |= MVNETA_SERDES_PU;
+		mvreg_write(pp, MVNETA_SERDES_CFG, reg);
+
+		/* Wait for the PHY to be ready */
+		ret = readl_poll_timeout(pp->base + MVNETA_SERDES_STAT,
+					 reg, (reg & 0x7) == 0x7, 5000, 100000);
+		if (ret != 0)
+			netdev_warn(pp->dev, "PHY preparation timed-out\n");
+	}
+
 	/* Even though it might look weird, when we're configured in
 	 * SGMII or QSGMII mode, the RGMII bit needs to be set.
 	 */
-	switch(phy_mode) {
-	case PHY_INTERFACE_MODE_QSGMII:
-		mvreg_write(pp, MVNETA_SERDES_CFG, MVNETA_QSGMII_SERDES_PROTO);
-		ctrl |= MVNETA_GMAC2_PCS_ENABLE | MVNETA_GMAC2_PORT_RGMII;
-		break;
-	case PHY_INTERFACE_MODE_SGMII:
-		mvreg_write(pp, MVNETA_SERDES_CFG, MVNETA_SGMII_SERDES_PROTO);
-		ctrl |= MVNETA_GMAC2_PCS_ENABLE | MVNETA_GMAC2_PORT_RGMII;
-		break;
-	case PHY_INTERFACE_MODE_RGMII:
-	case PHY_INTERFACE_MODE_RGMII_ID:
-		ctrl |= MVNETA_GMAC2_PORT_RGMII;
-		break;
-	default:
-		return -EINVAL;
-	}
+	ctrl |= MVNETA_GMAC2_PORT_RGMII;
 
 	if (pp->use_inband_status)
 		ctrl |= MVNETA_GMAC2_INBAND_AN_ENABLE;
@@ -3030,7 +3111,6 @@ static int mvneta_probe(struct platform_device *pdev)
 	char hw_mac_addr[ETH_ALEN];
 	const char *mac_from;
 	const char *managed;
-	int phy_mode;
 	int err;
 
 	/* Our multiqueue support is not complete, so for now, only
@@ -3044,6 +3124,8 @@ static int mvneta_probe(struct platform_device *pdev)
 	dev = alloc_etherdev_mqs(sizeof(struct mvneta_port), txq_number, rxq_number);
 	if (!dev)
 		return -ENOMEM;
+
+	pp = netdev_priv(dev);
 
 	dev->irq = irq_of_parse_and_map(dn, 0);
 	if (dev->irq == 0) {
@@ -3071,8 +3153,8 @@ static int mvneta_probe(struct platform_device *pdev)
 		phy_node = of_node_get(dn);
 	}
 
-	phy_mode = of_get_phy_mode(dn);
-	if (phy_mode < 0) {
+	pp->phy_interface = of_get_phy_mode(dn);
+	if (pp->phy_interface < 0) {
 		dev_err(&pdev->dev, "incorrect phy-mode\n");
 		err = -EINVAL;
 		goto err_put_phy_node;
@@ -3084,9 +3166,7 @@ static int mvneta_probe(struct platform_device *pdev)
 
 	dev->ethtool_ops = &mvneta_eth_tool_ops;
 
-	pp = netdev_priv(dev);
 	pp->phy_node = phy_node;
-	pp->phy_interface = phy_mode;
 
 	err = of_property_read_string(dn, "managed", &managed);
 	pp->use_inband_status = (err == 0 &&
@@ -3099,6 +3179,8 @@ static int mvneta_probe(struct platform_device *pdev)
 	}
 
 	clk_prepare_enable(pp->clk);
+
+	pp->phy = devm_phy_optional_get(&pdev->dev, "serdes");
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 0);
 	pp->base = devm_ioremap_resource(&pdev->dev, res);
@@ -3132,6 +3214,14 @@ static int mvneta_probe(struct platform_device *pdev)
 	if (of_device_is_compatible(dn, "marvell,armada-370-neta"))
 		pp->tx_csum_limit = 1600;
 
+	/*
+	 * We intentionally don't check the return value, since we
+	 * want, for DT backward compatibility reason, to continue
+	 * supporting platforms that don't have the syscon phandle.
+	 */
+	pp->syscon_regmap =
+		syscon_regmap_lookup_by_phandle(dn, "marvell,syscon");
+
 	pp->tx_ring_size = MVNETA_MAX_TXD;
 	pp->rx_ring_size = MVNETA_MAX_RXD;
 
@@ -3142,7 +3232,7 @@ static int mvneta_probe(struct platform_device *pdev)
 	if (err < 0)
 		goto err_free_stats;
 
-	err = mvneta_port_power_up(pp, phy_mode);
+	err = mvneta_port_power_up(pp);
 	if (err < 0) {
 		dev_err(&pdev->dev, "can't power up port\n");
 		goto err_free_stats;
@@ -3202,6 +3292,7 @@ static int mvneta_remove(struct platform_device *pdev)
 
 	unregister_netdev(dev);
 	clk_disable_unprepare(pp->clk);
+	mvneta_port_power_off(pp);
 	free_percpu(pp->stats);
 	irq_dispose_mapping(dev->irq);
 	of_node_put(pp->phy_node);
