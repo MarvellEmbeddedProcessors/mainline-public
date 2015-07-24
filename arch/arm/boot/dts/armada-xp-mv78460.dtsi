@@ -371,3 +371,7 @@
 &pinctrl {
 	compatible = "marvell,mv78460-pinctrl";
 };
+
+&serdes {
+	compatible = "marvell,mv78460-serdes";
+};

@@ -149,6 +149,11 @@
 				#clock-cells = <1>;
 			};
 
+			serdes: serdes@18270 {
+				reg = <0x18270 0x08>;
+				#phy-cells = <2>;
+			};
+
 			thermal@182b0 {
 				compatible = "marvell,armadaxp-thermal";
 				reg = <0x182b0 0x4
