@@ -58,6 +58,7 @@
 
 /dts-v1/;
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/phy/phy-mvebu-serdes.h>
 #include "armada-xp-mv78460.dtsi"
 
 / {
@@ -134,14 +135,26 @@
 			pcie@1,0 {
 				/* Port 0, Lane 0 */
 				status = "okay";
+				marvell,nlanes = <1>;
+				phys = <&serdes 0 SERDES_PCIE00>;
 			};
 			pcie@9,0 {
 				/* Port 2, Lane 0 */
 				status = "okay";
+				marvell,nlanes = <4>;
+				phys = <&serdes  8 SERDES_PCIE20>,
+				       <&serdes  9 SERDES_PCIE21>,
+				       <&serdes 10 SERDES_PCIE22>,
+				       <&serdes 11 SERDES_PCIE23>;
 			};
 			pcie@10,0 {
 				/* Port 3, Lane 0 */
 				status = "okay";
+				marvell,nlanes = <4>;
+				phys = <&serdes 12 SERDES_PCIE30>,
+				       <&serdes 13 SERDES_PCIE31>,
+				       <&serdes 14 SERDES_PCIE32>,
+				       <&serdes 15 SERDES_PCIE33>;
 			};
 		};
 
@@ -170,6 +183,8 @@
 			sata@a0000 {
 				nr-ports = <2>;
 				status = "okay";
+				phys = <&serdes 4 SERDES_SATA0>;
+				phy-names = "serdes";
 			};
 
 			mdio {
@@ -194,21 +209,29 @@
 				status = "okay";
 				phy = <&phy0>;
 				phy-mode = "qsgmii";
+				phys = <&serdes 3 SERDES_QSGMII>;
+				phy-names = "serdes";
 			};
 			ethernet@74000 {
 				status = "okay";
 				phy = <&phy1>;
 				phy-mode = "qsgmii";
+				phys = <&serdes 3 SERDES_QSGMII>;
+				phy-names = "serdes";
 			};
 			ethernet@30000 {
 				status = "okay";
 				phy = <&phy2>;
 				phy-mode = "qsgmii";
+				phys = <&serdes 3 SERDES_QSGMII>;
+				phy-names = "serdes";
 			};
 			ethernet@34000 {
 				status = "okay";
 				phy = <&phy3>;
 				phy-mode = "qsgmii";
+				phys = <&serdes 3 SERDES_QSGMII>;
+				phy-names = "serdes";
 			};
 
 			/* Front-side USB slot */
