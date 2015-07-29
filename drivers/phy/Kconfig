@@ -87,6 +87,12 @@ config PHY_PXA_28NM_USB2
 
 	  To compile this driver as a module, choose M here.
 
+config PHY_MVEBU_COMPHY
+	def_bool y
+	depends on MACH_ARMADA_375 || MACH_ARMADA_38X || MACH_ARMADA_39X
+	depends on OF
+	select GENERIC_PHY
+
 config PHY_MVEBU_SATA
 	def_bool y
 	depends on ARCH_DOVE || MACH_DOVE || MACH_KIRKWOOD
