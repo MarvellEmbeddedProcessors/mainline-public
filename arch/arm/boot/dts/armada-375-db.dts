@@ -48,6 +48,7 @@
 
 /dts-v1/;
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/phy/phy-mvebu-comphy.h>
 #include "armada-375.dtsi"
 
 / {
@@ -115,6 +116,8 @@
 			sata@a0000 {
 				status = "okay";
 				nr-ports = <2>;
+				phys = <&comphy 2 COMPHY_SATA0>, <&comphy 1 COMPHY_SATA1>;
+				phy-names = "port0", "port1";
 			};
 
 			nand: nand@d0000 {
@@ -148,6 +151,8 @@
 
 			usb3@58000 {
 				status = "okay";
+				phys = <&usbcluster PHY_TYPE_USB3>, <&comphy 3 COMPHY_USB3H0>;
+				phy-names = "usb", "comphy";
 			};
 
 			mvsdio@d4000 {
@@ -189,15 +194,18 @@
 			status = "okay";
 			/*
 			 * The two PCIe units are accessible through
-			 * standard PCIe slots on the board.
+			 * standard PCIe slots on the board. However,
+			 * the second port is disabled since it is not
+			 * soldered on A0+ revisions.
 			 */
 			pcie@1,0 {
 				/* Port 0, Lane 0 */
 				status = "okay";
+				phys = <&comphy 0 COMPHY_PCIE00>;
 			};
 			pcie@2,0 {
 				/* Port 1, Lane 0 */
-				status = "okay";
+				status = "disabled";
 			};
 		};
 	};
