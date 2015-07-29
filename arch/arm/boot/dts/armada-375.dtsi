@@ -394,6 +394,12 @@
 				#clock-cells = <1>;
 			};
 
+			comphy: comphy@18300 {
+				compatible = "marvell,mv88f6720-comphy";
+				reg = <0x18300 0x100>, <0x34000 0x8000>;
+				#phy-cells = <2>;
+			};
+
 			usbcluster: usb-cluster@18400 {
 				compatible = "marvell,armada-375-usb-cluster";
 				reg = <0x18400 0x4>;
