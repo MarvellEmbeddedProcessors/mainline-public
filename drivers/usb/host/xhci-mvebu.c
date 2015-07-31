@@ -11,6 +11,7 @@
 #include <linux/mbus.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/phy/phy.h>
 
 #include "xhci-mvebu.h"
 
@@ -46,6 +47,7 @@ int xhci_mvebu_mbus_init_quirk(struct platform_device *pdev)
 	struct resource	*res;
 	void __iomem *base;
 	const struct mbus_dram_target_info *dram;
+	struct phy *phy;
 
 	res = platform_get_resource(pdev, IORESOURCE_MEM, 1);
 	if (!res)
@@ -67,6 +69,14 @@ int xhci_mvebu_mbus_init_quirk(struct platform_device *pdev)
 	 * windows, and is therefore no longer useful.
 	 */
 	iounmap(base);
+
+	/*
+	 * We clearly need something better, since we want to power
+	 * off the phy on remove.
+	 */
+	phy = devm_of_phy_get(&pdev->dev, pdev->dev.of_node, "comphy");
+	if (!IS_ERR(phy))
+		phy_power_on(phy);
 
 	return 0;
 }
