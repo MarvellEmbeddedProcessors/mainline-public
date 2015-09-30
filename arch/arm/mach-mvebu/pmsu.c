@@ -208,6 +208,23 @@ static int __init mvebu_v7_pmsu_init(void)
 	return ret;
 }
 
+static void mvebu_v7_pmsu_enable_dfs_cpu(int hw_cpu, bool enable)
+{
+	u32 reg;
+
+	if (pmsu_mp_base == NULL)
+		return;
+	/*
+	 * Disable PMU wait for the CPU to enter WFI when doing DFS
+	 * by setting CPUx Frequency ID to 0 and re-enable with 1
+	 */
+	reg = readl(pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
+	reg &= ~(PMSU_CTL_CFG_CPU0_FRQ_ID_MSK << PMSU_CTL_CFG_CPU0_FRQ_ID_SFT);
+	if (enable)
+		reg |= BIT(PMSU_CTL_CFG_CPU0_FRQ_ID_SFT);
+	writel(reg, pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
+}
+
 static void mvebu_v7_pmsu_enable_l2_powerdown_onidle(void)
 {
 	u32 reg;
@@ -235,6 +252,9 @@ static int mvebu_v7_pmsu_idle_prepare(unsigned long flags)
 
 	if (pmsu_mp_base == NULL)
 		return -EINVAL;
+
+	/* Disable PMU wait for this CPU when doing DFS */
+	mvebu_v7_pmsu_enable_dfs_cpu(hw_cpu, false);
 
 	/*
 	 * Adjust the PMSU configuration to wait for WFI signal, enable
@@ -593,21 +613,6 @@ int armada_xp_pmsu_dfs_request(int cpu)
 	return 0;
 }
 
-void mvebu_v7_pmsu_disable_dfs_cpu(int hw_cpu)
-{
-	u32 reg;
-
-	if (pmsu_mp_base == NULL)
-		return;
-	/*
-	 * Disable PMU wait for the CPU to enter WFI when doing DFS
-	 * by setting CPUx Frequency ID to 0
-	 */
-	reg = readl(pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
-	reg &= ~(PMSU_CTL_CFG_CPU0_FRQ_ID_MSK << PMSU_CTL_CFG_CPU0_FRQ_ID_SFT);
-	writel(reg, pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
-}
-
 int armada_38x_pmsu_dfs_request(int cpu)
 {
 	/*
@@ -713,7 +718,7 @@ static int __init mvebu_pmsu_cpufreq_init(void)
 	}
 	if (of_machine_is_compatible("marvell,armada380")) {
 		if (num_online_cpus() == 1)
-			mvebu_v7_pmsu_disable_dfs_cpu(1);
+			mvebu_v7_pmsu_enable_dfs_cpu(1, false);
 
 		mvebu_pmsu_dfs_request_ptr = armada_38x_pmsu_dfs_request;
 		platform_device_register_data(NULL, "cpufreq-dt", -1,
