@@ -21,5 +21,4 @@ void armada_370_xp_cpu_resume(void);
 
 int armada_370_xp_pmsu_idle_enter(unsigned long deepidle);
 int armada_38x_do_cpu_suspend(unsigned long deepidle);
-void mvebu_v7_pmsu_disable_dfs_cpu(int hw_cpu);
 #endif	/* __MACH_370_XP_PMSU_H */
