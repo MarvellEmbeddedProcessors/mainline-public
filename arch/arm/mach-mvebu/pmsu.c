@@ -104,6 +104,7 @@ extern void armada_38x_cpu_resume(void);
 static phys_addr_t pmsu_mp_phys_base;
 static void __iomem *pmsu_mp_base;
 
+static bool enable_pmu_wait_on_exit;
 static void *mvebu_cpu_resume;
 static int (*mvebu_pmsu_dfs_request_ptr)(int cpu);
 
@@ -253,9 +254,6 @@ static int mvebu_v7_pmsu_idle_prepare(unsigned long flags)
 	if (pmsu_mp_base == NULL)
 		return -EINVAL;
 
-	/* Disable PMU wait for this CPU when doing DFS */
-	mvebu_v7_pmsu_enable_dfs_cpu(hw_cpu, false);
-
 	/*
 	 * Adjust the PMSU configuration to wait for WFI signal, enable
 	 * IRQ and FIQ as wakeup events, set wait for snoop queue empty
@@ -338,9 +336,13 @@ static int armada_370_xp_cpu_suspend(unsigned long deepidle)
 int armada_38x_do_cpu_suspend(unsigned long deepidle)
 {
 	unsigned long flags = 0;
+	unsigned int hw_cpu = cpu_logical_map(smp_processor_id());
 
 	if (deepidle)
 		flags |= PMSU_PREPARE_DEEP_IDLE;
+
+	/* Disable PMU wait for this CPU when doing DFS */
+	mvebu_v7_pmsu_enable_dfs_cpu(hw_cpu, false);
 
 	mvebu_v7_pmsu_idle_prepare(flags);
 	/*
@@ -373,13 +375,15 @@ void mvebu_v7_pmsu_idle_exit(void)
 	reg = readl(pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
 	reg &= ~PMSU_CTL_CFG_L2_PWDDN;
 
-	/*
-	 * When exiting from idle state such as cpuidle or hotplug,
-	 * Enable PMU wait for the CPU to enter WFI when doing DFS
-	 * by setting CPUx Frequency ID to 1
-	 */
-	reg |= 1 << PMSU_CTL_CFG_CPU0_FRQ_ID_SFT;
 	writel(reg, pmsu_mp_base + PMSU_CTL_CFG(hw_cpu));
+
+	/*
+	 * For Armada 38x Socs when exiting from idle state such as
+	 * cpuidle or hotplug, Enable PMU wait for the CPU to enter
+	 * WFI when doing DFS by setting CPUx Frequency ID to 1
+	 */
+	if (enable_pmu_wait_on_exit)
+		mvebu_v7_pmsu_enable_dfs_cpu(hw_cpu, true);
 
 	/* cancel Enable wakeup events and mask interrupts */
 	reg = readl(pmsu_mp_base + PMSU_STATUS_MSK(hw_cpu));
@@ -719,7 +723,7 @@ static int __init mvebu_pmsu_cpufreq_init(void)
 	if (of_machine_is_compatible("marvell,armada380")) {
 		if (num_online_cpus() == 1)
 			mvebu_v7_pmsu_enable_dfs_cpu(1, false);
-
+		enable_pmu_wait_on_exit = true;
 		mvebu_pmsu_dfs_request_ptr = armada_38x_pmsu_dfs_request;
 		platform_device_register_data(NULL, "cpufreq-dt", -1,
 					      &armada_38x_cpufreq_dt_pd,
