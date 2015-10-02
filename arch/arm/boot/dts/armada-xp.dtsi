@@ -195,6 +195,7 @@
 				interrupts = <12>;
 				clocks = <&gateclk 2>;
 				status = "disabled";
+				marvell,syscon = <&syscon>;
 			};
 
 			usb@50000 {

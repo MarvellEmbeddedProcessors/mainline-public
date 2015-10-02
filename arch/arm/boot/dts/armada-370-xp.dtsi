@@ -272,6 +272,7 @@
 				interrupts = <8>;
 				clocks = <&gateclk 4>;
 				status = "disabled";
+				marvell,syscon = <&syscon>;
 			};
 
 			mdio: mdio {
@@ -287,6 +288,7 @@
 				interrupts = <10>;
 				clocks = <&gateclk 3>;
 				status = "disabled";
+				marvell,syscon = <&syscon>;
 			};
 
 			sata@a0000 {

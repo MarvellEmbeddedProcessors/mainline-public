@@ -97,6 +97,8 @@
 			msi-parent = <&mpic>;
 			bus-range = <0x00 0xff>;
 
+			marvell,syscon = <&syscon>;
+
 			ranges =
 			       <0x82000000 0 0x40000 MBUS_ID(0xf0, 0x01) 0x40000 0 0x00002000   /* Port 0.0 registers */
 				0x82000000 0 0x44000 MBUS_ID(0xf0, 0x01) 0x44000 0 0x00002000   /* Port 0.1 registers */
