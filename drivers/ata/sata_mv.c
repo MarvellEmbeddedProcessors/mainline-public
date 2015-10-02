@@ -68,6 +68,7 @@
 #include <linux/gfp.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
+#include <linux/iopoll.h>
 #include <scsi/scsi_host.h>
 #include <scsi/scsi_cmnd.h>
 #include <scsi/scsi_device.h>
@@ -311,6 +312,20 @@ enum {
 	LP_PHY_CTL_PIN_PU_TX    = (1 << 2),
 	LP_PHY_CTL_GEN_TX_3G    = (1 << 5),
 	LP_PHY_CTL_GEN_RX_3G    = (1 << 9),
+	LP_PHY_STAT		= 0x05c,
+	PWR_PLL_CTRL		= 0x804,
+	PWR_PLL_CTRL_FREF_20MHZ	= (0 << 0),
+	PWR_PLL_CTRL_FREF_25MHZ	= (1 << 0),
+	PWR_PLL_CTRL_SATA_MODE	= (0 << 5),
+	PWR_PLL_CTRL_RSVD	= (0xF8 << 8),
+	DIG_LOOPBACK		= 0x88C,
+	DIG_LOOPBACK_10BIT	= (0 << 10),
+	DIG_LOOPBACK_20BIT	= (1 << 10),
+	DIG_LOOPBACK_40BIT	= (2 << 10),
+	REF_CLK_SEL		= 0x918,
+	REF_CLK_SEL_100MHZ	= (0 << 10),
+	REF_CLK_SEL_25MHZ	= (1 << 10),
+	COMPHY_CTRL		= 0x920,
 
 	MV_M2_PREAMP_MASK	= 0x7e0,
 
@@ -4131,10 +4146,25 @@ static int mv_platform_probe(struct platform_device *pdev)
 
 	for (port = 0; port < n_ports; port++) {
 		char port_number[16];
+
 		sprintf(port_number, "%d", port);
 		hpriv->port_clks[port] = clk_get(&pdev->dev, port_number);
 		if (!IS_ERR(hpriv->port_clks[port]))
 			clk_prepare_enable(hpriv->port_clks[port]);
+	}
+
+	if (of_device_is_compatible(pdev->dev.of_node,
+				    "marvell,armada-370-sata")) {
+		u32 reg;
+
+		/* Power-down the PHY */
+		reg = readl(hpriv->base + LP_PHY_CTL);
+		reg &= ~(LP_PHY_CTL_PIN_PU_PLL | LP_PHY_CTL_PIN_PU_RX | LP_PHY_CTL_PIN_PU_TX);
+		writelfl(reg, hpriv->base + LP_PHY_CTL);
+	}
+
+	for (port = 0; port < n_ports; port++) {
+		char port_number[16];
 
 		sprintf(port_number, "port%d", port);
 		hpriv->port_phys[port] = devm_phy_optional_get(&pdev->dev,
@@ -4150,6 +4180,40 @@ static int mv_platform_probe(struct platform_device *pdev)
 			goto err;
 		} else
 			phy_power_on(hpriv->port_phys[port]);
+	}
+
+	if (of_device_is_compatible(pdev->dev.of_node,
+				    "marvell,armada-370-sata")) {
+		u32 reg;
+		int ret;
+
+		/* RX Impedance mode. Should be 0x8080 for Armada 370 */
+		writelfl(0x8084, hpriv->base + COMPHY_CTRL);
+
+		writelfl(PWR_PLL_CTRL_RSVD |
+			 PWR_PLL_CTRL_FREF_25MHZ |
+			 PWR_PLL_CTRL_SATA_MODE, hpriv->base + PWR_PLL_CTRL);
+		writelfl(DIG_LOOPBACK_20BIT, hpriv->base + DIG_LOOPBACK);
+		writelfl(REF_CLK_SEL_25MHZ, hpriv->base + REF_CLK_SEL);
+
+		/* Power-up the PHY */
+		reg = readl(hpriv->base + LP_PHY_CTL);
+		reg |= LP_PHY_CTL_PIN_PU_PLL | LP_PHY_CTL_PIN_PU_RX | LP_PHY_CTL_PIN_PU_TX;
+		writelfl(reg, hpriv->base + LP_PHY_CTL);
+
+		msleep(15);
+
+		/* Wait for the PHY to be ready */
+		ret = readl_poll_timeout(hpriv->base + LP_PHY_STAT,
+					 reg, (reg & 0x7) == 0x7, 5000, 100000);
+		if (ret != 0)
+			dev_warn(&pdev->dev, "PHY preparation timed-out\n");
+
+		/* Magic values written by U-Boot */
+		writelfl(0x8a31, hpriv->base + 0x83c);
+		writelfl(0xc928, hpriv->base + 0x834);
+		writelfl(0x30f0, hpriv->base + 0x838);
+		writelfl(0x30f5, hpriv->base + 0x840);
 	}
 
 	/* All the ports have been initialized */
