@@ -101,9 +101,25 @@
  * PCIe PHY registers, accessed from the indirect PCIE_PHY_ACCESS_OFF
  * register.
  */
-#define GLOB_CLK_CTRL		0xc1
-#define GLOB_TEST_CTRL		0xc2
-#define GLOB_CLK_SRC_LO		0xc3
+#define LANE1_CFG_OFF			0x81
+#define   LANE1_MAX_PLL_RATE		BIT(9)
+#define   LANE1_GEN2_PLL_CAL		BIT(10)
+#define GLOB_CLK_CTRL_OFF		0xc1
+#define   GLOB_CLK_SOFT_RESET		BIT(0)
+#define   GLOB_CLK_MODE_FIXED_PCLK	BIT(2)
+#define   GLOB_CLK_MODEREFDIV_1		(0 << 4)
+#define   GLOB_CLK_MODEREFDIV_2		(1 << 4)
+#define   GLOB_CLK_MODEREFDIV_4		(2 << 4)
+#define   GLOB_CLK_MODEREFDIV_8		(3 << 4)
+#define GLOB_TEST_CTRL_OFF		0xc2
+#define   GLOB_TEST_MODE_MULTICAST	BIT(9)
+#define GLOB_CLK_SRC_LO_OFF		0xc3
+#define GLOB_TRIGGER_OFF		0xc5
+#define   GLOB_TRIGGER_IGNORE_PHY_RDY	BIT(0)
+#define   GLOB_TRIGGER_GEN1_TX_IDL(n)	((n) << 1)
+#define   GLOB_TRIGGER_PASS_RX_INFO	BIT(3)
+#define   GLOB_TRIGGER_NO_DISP_ERROR	BIT(4)
+#define   GLOB_TRIGGER_ALWAYS_ALIGN	BIT(8)
 
 /* PCI configuration space of a PCI-to-PCI bridge */
 struct mvebu_sw_pci_bridge {
@@ -1017,17 +1033,29 @@ static void mvebu_pcie_serdes_phy_init(struct mvebu_pcie_port *port)
 	u16 model = 0;
 
 	/* Apply soft reset + fixed pclk mode */
-	mvebu_phy_write(port, 0, GLOB_CLK_CTRL, 0x25);
+	mvebu_phy_write(port, 0, GLOB_CLK_CTRL_OFF,
+			(GLOB_CLK_SOFT_RESET |
+			 GLOB_CLK_MODE_FIXED_PCLK |
+			 GLOB_CLK_MODEREFDIV_4));
 
 	/* Multicast enable bit configuration */
 	if (port->nlanes == 4)
-		mvebu_phy_write(port, 0, GLOB_TEST_CTRL, 0x200);
+		mvebu_phy_write(port, 0, GLOB_TEST_CTRL_OFF,
+				GLOB_TEST_MODE_MULTICAST);
 
-	/* Clock control */
+	/*
+	 * Clock control. Each bit in [15:0] indicates that pclk is
+	 * generated from that lane.
+	 */
 	if (port->nlanes == 1)
-		mvebu_phy_write(port, 0, GLOB_CLK_SRC_LO, 0x0f);
+		mvebu_phy_write(port, 0, GLOB_CLK_SRC_LO_OFF, 0x0f);
 
-	mvebu_phy_write(port, 0, 0xC5, 0x11f);
+	mvebu_phy_write(port, 0, GLOB_TRIGGER_OFF,
+			(GLOB_TRIGGER_IGNORE_PHY_RDY |
+			 GLOB_TRIGGER_GEN1_TX_IDL(3) |
+			 GLOB_TRIGGER_PASS_RX_INFO   |
+			 GLOB_TRIGGER_NO_DISP_ERROR  |
+			 GLOB_TRIGGER_ALWAYS_ALIGN));
 
 	/*
 	 * Power UP the PHY here to get the proper muxing of the
@@ -1107,14 +1135,15 @@ static void mvebu_pcie_serdes_phy_init(struct mvebu_pcie_port *port)
 			mvebu_phy_write(port, port->lane, 0x2, val);
 
 			/* Use Maximum PLL Rate (bits [10:9]) */
-			val = mvebu_phy_read(port, port->lane, 0x81);
-			val |= BIT(10) | BIT(9);
-			mvebu_phy_write(port, port->lane, 0x81, val);
+			val = mvebu_phy_read(port, port->lane, LANE1_CFG_OFF);
+			val |= LANE1_MAX_PLL_RATE | LANE1_GEN2_PLL_CAL;
+			mvebu_phy_write(port, port->lane, LANE1_CFG_OFF, val);
 		}
 	}
 
 	/* Last phase of PEX-PIPE Configuration */
-	mvebu_phy_write(port, port->lane, GLOB_CLK_CTRL, 0x24);
+	mvebu_phy_write(port, port->lane, GLOB_CLK_CTRL,
+			GLOB_CLK_MODEREFDIV_4 | GLOB_CLK_MODE_FIXED_PCLK);
 
 	/* Make sure we're working in Root Complex mode */
 	reg = mvebu_readl(port, PCIE_CAPABILITIES_OFF);
