@@ -74,6 +74,7 @@ config ARCH_MVEBU
 	select ARMADA_AP806_SYSCON
 	select ARMADA_CP110_SYSCON
 	select MVEBU_ODMI
+	select MVEBU_PIC
 	help
 	  This enables support for Marvell EBU familly, including:
 	   - Armada 3700 SoC Family
