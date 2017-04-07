@@ -76,7 +76,7 @@ enum {
 #define CP110_GATE_SATA			15
 #define CP110_GATE_SATA_USB		16
 #define CP110_GATE_MAIN			17
-#define CP110_GATE_SDMMC_GOP		18
+#define CP110_GATE_GOP			18
 #define CP110_GATE_SLOW_IO		21
 #define CP110_GATE_USB3H0		22
 #define CP110_GATE_USB3H1		23
@@ -314,7 +314,8 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 		case CP110_GATE_GOP_DP:
 			of_property_read_string_index(np,
 						      "gate-clock-output-names",
-						      CP110_GATE_SDMMC_GOP, &parent);
+						      CP110_GATE_GOP, &parent);
+
 			break;
 		case CP110_GATE_XOR1:
 		case CP110_GATE_XOR0:
