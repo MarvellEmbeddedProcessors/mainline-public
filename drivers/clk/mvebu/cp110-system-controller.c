@@ -194,9 +194,9 @@ static struct clk_hw *cp110_of_clk_get(struct of_phandle_args *clkspec,
 	return ERR_PTR(-EINVAL);
 }
 
-static char *cp110_unique_name(struct device *dev, char *name)
+static char *cp110_unique_name(struct device *dev, struct device_node *np,
+			       char *name)
 {
-	struct device_node *np = dev->of_node;
 	const __be32 *reg;
 	u64 addr;
 
@@ -210,7 +210,8 @@ static char *cp110_unique_name(struct device *dev, char *name)
 			(unsigned long long)addr, name);
 }
 
-static int cp110_syscon_clk_probe(struct platform_device *pdev)
+static int cp110_syscon_common_probe(struct platform_device *pdev,
+				     struct device_node *reg_np)
 {
 	struct regmap *regmap;
 	struct device *dev = &pdev->dev;
@@ -222,7 +223,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	int i, ret;
 	char *gate_name[ARRAY_SIZE(gate_base_name)];
 
-	regmap = syscon_node_to_regmap(np);
+	regmap = syscon_node_to_regmap(reg_np);
 	if (IS_ERR(regmap))
 		return PTR_ERR(regmap);
 
@@ -241,7 +242,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	cp110_clk_data->num = CP110_CLK_NUM;
 
 	/* Register the APLL which is the root of the hw tree */
-	apll_name = cp110_unique_name(dev, "apll");
+	apll_name = cp110_unique_name(dev, reg_np, "apll");
 	hw = clk_hw_register_fixed_rate(NULL, apll_name, NULL, 0,
 					1000 * 1000 * 1000);
 	if (IS_ERR(hw)) {
@@ -252,7 +253,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	cp110_clks[CP110_CORE_APLL] = hw;
 
 	/* PPv2 is APLL/3 */
-	ppv2_name = cp110_unique_name(dev, "ppv2-core");
+	ppv2_name = cp110_unique_name(dev, reg_np, "ppv2-core");
 	hw = clk_hw_register_fixed_factor(NULL, ppv2_name, apll_name, 0, 1, 3);
 	if (IS_ERR(hw)) {
 		ret = PTR_ERR(hw);
@@ -262,7 +263,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	cp110_clks[CP110_CORE_PPV2] = hw;
 
 	/* EIP clock is APLL/2 */
-	eip_name = cp110_unique_name(dev, "eip");
+	eip_name = cp110_unique_name(dev, reg_np, "eip");
 	hw = clk_hw_register_fixed_factor(NULL, eip_name, apll_name, 0, 1, 2);
 	if (IS_ERR(hw)) {
 		ret = PTR_ERR(hw);
@@ -272,7 +273,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 	cp110_clks[CP110_CORE_EIP] = hw;
 
 	/* Core clock is EIP/2 */
-	core_name = cp110_unique_name(dev, "core");
+	core_name = cp110_unique_name(dev, reg_np, "core");
 	hw = clk_hw_register_fixed_factor(NULL, core_name, eip_name, 0, 1, 2);
 	if (IS_ERR(hw)) {
 		ret = PTR_ERR(hw);
@@ -281,7 +282,7 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 
 	cp110_clks[CP110_CORE_CORE] = hw;
 	/* NAND can be either APLL/2.5 or core clock */
-	nand_name = cp110_unique_name(dev, "nand-core");
+	nand_name = cp110_unique_name(dev, reg_np, "nand-core");
 	if (nand_clk_ctrl & NF_CLOCK_SEL_400_MASK)
 		hw = clk_hw_register_fixed_factor(NULL, nand_name,
 						   apll_name, 0, 2, 5);
@@ -297,7 +298,8 @@ static int cp110_syscon_clk_probe(struct platform_device *pdev)
 
 	/* create the unique name for all the gate clocks */
 	for (i = 0; i < ARRAY_SIZE(gate_base_name); i++)
-		gate_name[i] =	cp110_unique_name(dev, gate_base_name[i]);
+		gate_name[i] =	cp110_unique_name(dev, reg_np,
+						  gate_base_name[i]);
 
 	for (i = 0; i < ARRAY_SIZE(gate_base_name); i++) {
 		const char *parent;
@@ -383,17 +385,48 @@ fail_apll:
 	return ret;
 }
 
-static const struct of_device_id cp110_syscon_of_match[] = {
+static int cp110_syscon_legacy_clk_probe(struct platform_device *pdev)
+{
+	dev_warn(&pdev->dev, "Using legacy device tree binding\n");
+	dev_warn(&pdev->dev, "Update your device tree:\n");
+	dev_warn(&pdev->dev,
+		 "This binding won't be supported in future kernel\n");
+
+	return cp110_syscon_common_probe(pdev, pdev->dev.of_node);
+}
+
+static int cp110_clk_probe(struct platform_device *pdev)
+{
+	return cp110_syscon_common_probe(pdev, pdev->dev.of_node->parent);
+}
+
+
+static const struct of_device_id cp110_syscon_legacy_of_match[] = {
 	{ .compatible = "marvell,cp110-system-controller0", },
 	{ }
 };
 
-static struct platform_driver cp110_syscon_driver = {
-	.probe = cp110_syscon_clk_probe,
+static struct platform_driver cp110_syscon_legacy_driver = {
+	.probe = *cp110_syscon_legacy_clk_probe,
 	.driver		= {
 		.name	= "marvell-cp110-system-controller0",
-		.of_match_table = cp110_syscon_of_match,
+		.of_match_table = cp110_syscon_legacy_of_match,
 		.suppress_bind_attrs = true,
 	},
 };
-builtin_platform_driver(cp110_syscon_driver);
+builtin_platform_driver(cp110_syscon_legacy_driver);
+
+static const struct of_device_id cp110_clock_of_match[] = {
+	{ .compatible = "marvell,cp110-clock", },
+	{ }
+};
+
+static struct platform_driver cp110_clock_driver = {
+	.probe = cp110_clk_probe,
+	.driver		= {
+		.name	= "marvell-cp110-clock",
+		.of_match_table = cp110_clock_of_match,
+		.suppress_bind_attrs = true,
+	},
+};
+builtin_platform_driver(cp110_clock_driver);
