@@ -60,10 +60,12 @@
 			ranges = <0x0 0x0 0xf4000000 0x2000000>;
 
 			cps_syscon0: system-controller@440000 {
-				compatible = "marvell,cp110-system-controller0",
-					     "syscon";
+				compatible = "syscon", "simple-mfd";
 				reg = <0x440000 0x1000>;
-				#clock-cells = <2>;
+				cps_clk: clock {
+					compatible = "marvell,cp110-clock";
+					#clock-cells = <2>;
+				};
 			};
 
 			cps_sata0: sata@540000 {
@@ -71,7 +73,7 @@
 					     "generic-ahci";
 				reg = <0x540000 0x30000>;
 				interrupts = <GIC_SPI 287 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 15>;
+				clocks = <&cps_clk 1 15>;
 				status = "disabled";
 			};
 
@@ -81,7 +83,7 @@
 				reg = <0x500000 0x4000>;
 				dma-coherent;
 				interrupts = <GIC_SPI 286 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 22>;
+				clocks = <&cps_clk 1 22>;
 				status = "disabled";
 			};
 
@@ -91,7 +93,7 @@
 				reg = <0x510000 0x4000>;
 				dma-coherent;
 				interrupts = <GIC_SPI 285 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 23>;
+				clocks = <&cps_clk 1 23>;
 				status = "disabled";
 			};
 
@@ -101,7 +103,7 @@
 				      <0x6b0000 0x1000>;
 				dma-coherent;
 				msi-parent = <&gic_v2m0>;
-				clocks = <&cps_syscon0 1 8>;
+				clocks = <&cps_clk 1 8>;
 			};
 
 			cps_xor1: xor@6c0000 {
@@ -110,7 +112,7 @@
 				      <0x6d0000 0x1000>;
 				dma-coherent;
 				msi-parent = <&gic_v2m0>;
-				clocks = <&cps_syscon0 1 7>;
+				clocks = <&cps_clk 1 7>;
 			};
 
 			cps_spi0: spi@700600 {
@@ -119,7 +121,7 @@
 				#address-cells = <0x1>;
 				#size-cells = <0x0>;
 				cell-index = <3>;
-				clocks = <&cps_syscon0 1 21>;
+				clocks = <&cps_clk 1 21>;
 				status = "disabled";
 			};
 
@@ -129,7 +131,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				cell-index = <4>;
-				clocks = <&cps_syscon0 1 21>;
+				clocks = <&cps_clk 1 21>;
 				status = "disabled";
 			};
 
@@ -139,7 +141,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				interrupts = <GIC_SPI 310 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 21>;
+				clocks = <&cps_clk 1 21>;
 				status = "disabled";
 			};
 
@@ -149,7 +151,7 @@
 				#address-cells = <1>;
 				#size-cells = <0>;
 				interrupts = <GIC_SPI 311 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 21>;
+				clocks = <&cps_clk 1 21>;
 				status = "disabled";
 			};
 
@@ -157,7 +159,7 @@
 				compatible = "marvell,armada-8k-rng", "inside-secure,safexcel-eip76";
 				reg = <0x760000 0x7d>;
 				interrupts = <GIC_SPI 312 IRQ_TYPE_LEVEL_HIGH>;
-				clocks = <&cps_syscon0 1 25>;
+				clocks = <&cps_clk 1 25>;
 				status = "okay";
 			};
 		};
@@ -184,7 +186,7 @@
 			interrupt-map = <0 0 0 0 &gic 0 GIC_SPI 256 IRQ_TYPE_LEVEL_HIGH>;
 			interrupts = <GIC_SPI 256 IRQ_TYPE_LEVEL_HIGH>;
 			num-lanes = <1>;
-			clocks = <&cps_syscon0 1 13>;
+			clocks = <&cps_clk 1 13>;
 			status = "disabled";
 		};
 
@@ -211,7 +213,7 @@
 			interrupts = <GIC_SPI 258 IRQ_TYPE_LEVEL_HIGH>;
 
 			num-lanes = <1>;
-			clocks = <&cps_syscon0 1 11>;
+			clocks = <&cps_clk 1 11>;
 			status = "disabled";
 		};
 
@@ -238,7 +240,7 @@
 			interrupts = <GIC_SPI 257 IRQ_TYPE_LEVEL_HIGH>;
 
 			num-lanes = <1>;
-			clocks = <&cps_syscon0 1 12>;
+			clocks = <&cps_clk 1 12>;
 			status = "disabled";
 		};
 	};
