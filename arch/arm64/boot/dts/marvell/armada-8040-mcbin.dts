@@ -155,3 +155,35 @@
 	usb-phy = <&usb3h0_phy>;
 	status = "okay";
 };
+
+/* --- */
+
+&cpm_xmdio {
+	status = "okay";
+
+	phy0: ethernet-phy@0 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <0>;
+	};
+
+	phy1: ethernet-phy@1 {
+		compatible = "ethernet-phy-ieee802.3-c45";
+		reg = <8>;
+	};
+};
+
+&cpm_ethernet {
+	status = "okay";
+};
+
+&cpm_eth0 {
+	status = "okay";
+	phy = <&phy0>;
+	phy-mode = "10gbase-kr";
+};
+
+&cps_eth0 {
+	status = "okay";
+	phy = <&phy1>;
+	phy-mode = "10gbase-kr";
+};
