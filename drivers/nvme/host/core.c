@@ -70,29 +70,21 @@ static DEFINE_SPINLOCK(dev_list_lock);
 
 static struct class *nvme_class;
 
-static int nvme_error_status(struct request *req)
+static blk_status_t nvme_error_status(struct request *req)
 {
 	switch (nvme_req(req)->status & 0x7ff) {
 	case NVME_SC_SUCCESS:
-		return 0;
+		return BLK_STS_OK;
 	case NVME_SC_CAP_EXCEEDED:
-		return -ENOSPC;
-	default:
-		return -EIO;
-
-	/*
-	 * XXX: these errors are a nasty side-band protocol to
-	 * drivers/md/dm-mpath.c:noretry_error() that aren't documented
-	 * anywhere..
-	 */
-	case NVME_SC_CMD_SEQ_ERROR:
-		return -EILSEQ;
+		return BLK_STS_NOSPC;
 	case NVME_SC_ONCS_NOT_SUPPORTED:
-		return -EOPNOTSUPP;
+		return BLK_STS_NOTSUPP;
 	case NVME_SC_WRITE_FAULT:
 	case NVME_SC_READ_ERROR:
 	case NVME_SC_UNWRITTEN_BLOCK:
-		return -ENODATA;
+		return BLK_STS_MEDIUM;
+	default:
+		return BLK_STS_IOERR;
 	}
 }
 
@@ -291,7 +283,7 @@ static inline void nvme_setup_flush(struct nvme_ns *ns,
 	cmnd->common.nsid = cpu_to_le32(ns->ns_id);
 }
 
-static inline int nvme_setup_discard(struct nvme_ns *ns, struct request *req,
+static blk_status_t nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 		struct nvme_command *cmnd)
 {
 	unsigned short segments = blk_rq_nr_discard_segments(req), n = 0;
@@ -300,7 +292,7 @@ static inline int nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 
 	range = kmalloc_array(segments, sizeof(*range), GFP_ATOMIC);
 	if (!range)
-		return BLK_MQ_RQ_QUEUE_BUSY;
+		return BLK_STS_RESOURCE;
 
 	__rq_for_each_bio(bio, req) {
 		u64 slba = nvme_block_nr(ns, bio->bi_iter.bi_sector);
@@ -314,7 +306,7 @@ static inline int nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 
 	if (WARN_ON_ONCE(n != segments)) {
 		kfree(range);
-		return BLK_MQ_RQ_QUEUE_ERROR;
+		return BLK_STS_IOERR;
 	}
 
 	memset(cmnd, 0, sizeof(*cmnd));
@@ -328,7 +320,7 @@ static inline int nvme_setup_discard(struct nvme_ns *ns, struct request *req,
 	req->special_vec.bv_len = sizeof(*range) * segments;
 	req->rq_flags |= RQF_SPECIAL_PAYLOAD;
 
-	return BLK_MQ_RQ_QUEUE_OK;
+	return BLK_STS_OK;
 }
 
 static inline void nvme_setup_rw(struct nvme_ns *ns, struct request *req,
@@ -372,10 +364,10 @@ static inline void nvme_setup_rw(struct nvme_ns *ns, struct request *req,
 	cmnd->rw.dsmgmt = cpu_to_le32(dsmgmt);
 }
 
-int nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
+blk_status_t nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		struct nvme_command *cmd)
 {
-	int ret = BLK_MQ_RQ_QUEUE_OK;
+	blk_status_t ret = BLK_STS_OK;
 
 	if (!(req->rq_flags & RQF_DONTPREP)) {
 		nvme_req(req)->retries = 0;
@@ -402,7 +394,7 @@ int nvme_setup_cmd(struct nvme_ns *ns, struct request *req,
 		break;
 	default:
 		WARN_ON_ONCE(1);
-		return BLK_MQ_RQ_QUEUE_ERROR;
+		return BLK_STS_IOERR;
 	}
 
 	cmd->common.command_id = req->tag;
@@ -555,15 +547,16 @@ int nvme_submit_user_cmd(struct request_queue *q, struct nvme_command *cmd,
 			result, timeout);
 }
 
-static void nvme_keep_alive_end_io(struct request *rq, int error)
+static void nvme_keep_alive_end_io(struct request *rq, blk_status_t status)
 {
 	struct nvme_ctrl *ctrl = rq->end_io_data;
 
 	blk_mq_free_request(rq);
 
-	if (error) {
+	if (status) {
 		dev_err(ctrl->device,
-			"failed nvme_keep_alive_end_io error=%d\n", error);
+			"failed nvme_keep_alive_end_io error=%d\n",
+				status);
 		return;
 	}
 

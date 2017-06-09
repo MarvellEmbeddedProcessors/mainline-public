@@ -87,7 +87,8 @@ struct blk_mq_queue_data {
 	bool last;
 };
 
-typedef int (queue_rq_fn)(struct blk_mq_hw_ctx *, const struct blk_mq_queue_data *);
+typedef blk_status_t (queue_rq_fn)(struct blk_mq_hw_ctx *,
+		const struct blk_mq_queue_data *);
 typedef enum blk_eh_timer_return (timeout_fn)(struct request *, bool);
 typedef int (init_hctx_fn)(struct blk_mq_hw_ctx *, void *, unsigned int);
 typedef void (exit_hctx_fn)(struct blk_mq_hw_ctx *, unsigned int);
@@ -155,10 +156,6 @@ struct blk_mq_ops {
 };
 
 enum {
-	BLK_MQ_RQ_QUEUE_OK	= 0,	/* queued fine */
-	BLK_MQ_RQ_QUEUE_BUSY	= 1,	/* requeue IO for later */
-	BLK_MQ_RQ_QUEUE_ERROR	= 2,	/* end IO with error */
-
 	BLK_MQ_F_SHOULD_MERGE	= 1 << 0,
 	BLK_MQ_F_TAG_SHARED	= 1 << 1,
 	BLK_MQ_F_SG_MERGE	= 1 << 2,
@@ -230,8 +227,8 @@ static inline u16 blk_mq_unique_tag_to_tag(u32 unique_tag)
 
 int blk_mq_request_started(struct request *rq);
 void blk_mq_start_request(struct request *rq);
-void blk_mq_end_request(struct request *rq, int error);
-void __blk_mq_end_request(struct request *rq, int error);
+void blk_mq_end_request(struct request *rq, blk_status_t error);
+void __blk_mq_end_request(struct request *rq, blk_status_t error);
 
 void blk_mq_requeue_request(struct request *rq, bool kick_requeue_list);
 void blk_mq_add_to_requeue_list(struct request *rq, bool at_head,

@@ -881,7 +881,7 @@ static inline bool blkif_request_flush_invalid(struct request *req,
 		 !info->feature_fua));
 }
 
-static int blkif_queue_rq(struct blk_mq_hw_ctx *hctx,
+static blk_status_t blkif_queue_rq(struct blk_mq_hw_ctx *hctx,
 			  const struct blk_mq_queue_data *qd)
 {
 	unsigned long flags;
@@ -904,16 +904,16 @@ static int blkif_queue_rq(struct blk_mq_hw_ctx *hctx,
 
 	flush_requests(rinfo);
 	spin_unlock_irqrestore(&rinfo->ring_lock, flags);
-	return BLK_MQ_RQ_QUEUE_OK;
+	return BLK_STS_OK;
 
 out_err:
 	spin_unlock_irqrestore(&rinfo->ring_lock, flags);
-	return BLK_MQ_RQ_QUEUE_ERROR;
+	return BLK_STS_IOERR;
 
 out_busy:
 	spin_unlock_irqrestore(&rinfo->ring_lock, flags);
 	blk_mq_stop_hw_queue(hctx);
-	return BLK_MQ_RQ_QUEUE_BUSY;
+	return BLK_STS_RESOURCE;
 }
 
 static void blkif_complete_rq(struct request *rq)
@@ -1601,14 +1601,18 @@ static irqreturn_t blkif_interrupt(int irq, void *dev_id)
 			continue;
 		}
 
-		blkif_req(req)->error = (bret->status == BLKIF_RSP_OKAY) ? 0 : -EIO;
+		if (bret->status == BLKIF_RSP_OKAY)
+			blkif_req(req)->error = BLK_STS_OK;
+		else
+			blkif_req(req)->error = BLK_STS_IOERR;
+
 		switch (bret->operation) {
 		case BLKIF_OP_DISCARD:
 			if (unlikely(bret->status == BLKIF_RSP_EOPNOTSUPP)) {
 				struct request_queue *rq = info->rq;
 				printk(KERN_WARNING "blkfront: %s: %s op failed\n",
 					   info->gd->disk_name, op_name(bret->operation));
-				blkif_req(req)->error = -EOPNOTSUPP;
+				blkif_req(req)->error = BLK_STS_NOTSUPP;
 				info->feature_discard = 0;
 				info->feature_secdiscard = 0;
 				queue_flag_clear(QUEUE_FLAG_DISCARD, rq);
@@ -1626,11 +1630,11 @@ static irqreturn_t blkif_interrupt(int irq, void *dev_id)
 				     rinfo->shadow[id].req.u.rw.nr_segments == 0)) {
 				printk(KERN_WARNING "blkfront: %s: empty %s op failed\n",
 				       info->gd->disk_name, op_name(bret->operation));
-				blkif_req(req)->error = -EOPNOTSUPP;
+				blkif_req(req)->error = BLK_STS_NOTSUPP;
 			}
 			if (unlikely(blkif_req(req)->error)) {
-				if (blkif_req(req)->error == -EOPNOTSUPP)
-					blkif_req(req)->error = 0;
+				if (blkif_req(req)->error == BLK_STS_NOTSUPP)
+					blkif_req(req)->error = BLK_STS_OK;
 				info->feature_fua = 0;
 				info->feature_flush = 0;
 				xlvbd_flush(info);
@@ -2002,7 +2006,7 @@ static void split_bio_end(struct bio *bio)
 
 	if (atomic_dec_and_test(&split_bio->pending)) {
 		split_bio->bio->bi_phys_segments = 0;
-		split_bio->bio->bi_error = bio->bi_error;
+		split_bio->bio->bi_status = bio->bi_status;
 		bio_endio(split_bio->bio);
 		kfree(split_bio);
 	}
@@ -2137,7 +2141,7 @@ static int blkfront_resume(struct xenbus_device *dev)
 			merge_bio.tail = shadow[j].request->biotail;
 			bio_list_merge(&info->bio_list, &merge_bio);
 			shadow[j].request->bio = NULL;
-			blk_mq_end_request(shadow[j].request, 0);
+			blk_mq_end_request(shadow[j].request, BLK_STS_OK);
 		}
 	}
 
