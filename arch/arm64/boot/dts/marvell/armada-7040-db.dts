@@ -107,6 +107,27 @@
 	clock-frequency = <100000>;
 };
 
+&cpm_nand {
+	pinctrl-0 = <&nand_pins>;
+	pinctrl-names = "default";
+
+	nand-ecc-strength = <4>;
+	nand-ecc-step-size = <512>;
+	status = "okay";
+	partition@0 {
+		label = "U-Boot";
+		reg = <0 0x200000>;
+	};
+	partition@200000 {
+		label = "Linux";
+		reg = <0x200000 0xd00000>;
+	};
+	partition@1000000 {
+		label = "Filesystem";
+		reg = <0x1000000 0x3f000000>;
+	};
+};
+
 &cpm_spi1 {
 	status = "okay";
 
