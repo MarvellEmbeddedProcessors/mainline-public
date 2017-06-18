@@ -204,15 +204,31 @@ bool blk_mq_can_queue(struct blk_mq_hw_ctx *hctx)
 }
 EXPORT_SYMBOL(blk_mq_can_queue);
 
-void blk_mq_rq_ctx_init(struct request_queue *q, struct blk_mq_ctx *ctx,
-			struct request *rq, unsigned int op)
+static struct request *blk_mq_rq_ctx_init(struct blk_mq_alloc_data *data,
+		unsigned int tag, unsigned int op)
 {
+	struct blk_mq_tags *tags = blk_mq_tags_from_data(data);
+	struct request *rq = tags->static_rqs[tag];
+
+	if (data->flags & BLK_MQ_REQ_INTERNAL) {
+		rq->tag = -1;
+		rq->internal_tag = tag;
+	} else {
+		if (blk_mq_tag_busy(data->hctx)) {
+			rq->rq_flags = RQF_MQ_INFLIGHT;
+			atomic_inc(&data->hctx->nr_active);
+		}
+		rq->tag = tag;
+		rq->internal_tag = -1;
+		data->hctx->tags->rqs[rq->tag] = rq;
+	}
+
 	INIT_LIST_HEAD(&rq->queuelist);
 	/* csd/requeue_work/fifo_time is initialized before use */
-	rq->q = q;
-	rq->mq_ctx = ctx;
+	rq->q = data->q;
+	rq->mq_ctx = data->ctx;
 	rq->cmd_flags = op;
-	if (blk_queue_io_stat(q))
+	if (blk_queue_io_stat(data->q))
 		rq->rq_flags |= RQF_IO_STAT;
 	/* do not touch atomic flags, it needs atomic ops against the timer */
 	rq->cpu = -1;
@@ -241,42 +257,56 @@ void blk_mq_rq_ctx_init(struct request_queue *q, struct blk_mq_ctx *ctx,
 	rq->end_io_data = NULL;
 	rq->next_rq = NULL;
 
-	ctx->rq_dispatched[op_is_sync(op)]++;
+	data->ctx->rq_dispatched[op_is_sync(op)]++;
+	return rq;
 }
-EXPORT_SYMBOL_GPL(blk_mq_rq_ctx_init);
 
-struct request *__blk_mq_alloc_request(struct blk_mq_alloc_data *data,
-				       unsigned int op)
+static struct request *blk_mq_get_request(struct request_queue *q,
+		struct bio *bio, unsigned int op,
+		struct blk_mq_alloc_data *data)
 {
+	struct elevator_queue *e = q->elevator;
 	struct request *rq;
 	unsigned int tag;
 
-	tag = blk_mq_get_tag(data);
-	if (tag != BLK_MQ_TAG_FAIL) {
-		struct blk_mq_tags *tags = blk_mq_tags_from_data(data);
+	blk_queue_enter_live(q);
+	data->q = q;
+	if (likely(!data->ctx))
+		data->ctx = blk_mq_get_ctx(q);
+	if (likely(!data->hctx))
+		data->hctx = blk_mq_map_queue(q, data->ctx->cpu);
 
-		rq = tags->static_rqs[tag];
+	if (e) {
+		data->flags |= BLK_MQ_REQ_INTERNAL;
 
-		if (data->flags & BLK_MQ_REQ_INTERNAL) {
-			rq->tag = -1;
-			rq->internal_tag = tag;
-		} else {
-			if (blk_mq_tag_busy(data->hctx)) {
-				rq->rq_flags = RQF_MQ_INFLIGHT;
-				atomic_inc(&data->hctx->nr_active);
-			}
-			rq->tag = tag;
-			rq->internal_tag = -1;
-			data->hctx->tags->rqs[rq->tag] = rq;
-		}
-
-		blk_mq_rq_ctx_init(data->q, data->ctx, rq, op);
-		return rq;
+		/*
+		 * Flush requests are special and go directly to the
+		 * dispatch list.
+		 */
+		if (!op_is_flush(op) && e->type->ops.mq.limit_depth)
+			e->type->ops.mq.limit_depth(op, data);
 	}
 
-	return NULL;
+	tag = blk_mq_get_tag(data);
+	if (tag == BLK_MQ_TAG_FAIL) {
+		blk_queue_exit(q);
+		return NULL;
+	}
+
+	rq = blk_mq_rq_ctx_init(data, tag, op);
+	if (!op_is_flush(op)) {
+		rq->elv.icq = NULL;
+		if (e && e->type->ops.mq.prepare_request) {
+			if (e->type->icq_cache && rq_ioc(bio))
+				blk_mq_sched_assign_ioc(rq, bio);
+
+			e->type->ops.mq.prepare_request(rq, bio);
+			rq->rq_flags |= RQF_ELVPRIV;
+		}
+	}
+	data->hctx->queued++;
+	return rq;
 }
-EXPORT_SYMBOL_GPL(__blk_mq_alloc_request);
 
 struct request *blk_mq_alloc_request(struct request_queue *q, int rw,
 		unsigned int flags)
@@ -289,7 +319,7 @@ struct request *blk_mq_alloc_request(struct request_queue *q, int rw,
 	if (ret)
 		return ERR_PTR(ret);
 
-	rq = blk_mq_sched_get_request(q, NULL, rw, &alloc_data);
+	rq = blk_mq_get_request(q, NULL, rw, &alloc_data);
 
 	blk_mq_put_ctx(alloc_data.ctx);
 	blk_queue_exit(q);
@@ -340,7 +370,7 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q, int rw,
 	cpu = cpumask_first(alloc_data.hctx->cpumask);
 	alloc_data.ctx = __blk_mq_get_ctx(q, cpu);
 
-	rq = blk_mq_sched_get_request(q, NULL, rw, &alloc_data);
+	rq = blk_mq_get_request(q, NULL, rw, &alloc_data);
 
 	blk_queue_exit(q);
 
@@ -351,12 +381,24 @@ struct request *blk_mq_alloc_request_hctx(struct request_queue *q, int rw,
 }
 EXPORT_SYMBOL_GPL(blk_mq_alloc_request_hctx);
 
-void __blk_mq_finish_request(struct blk_mq_hw_ctx *hctx, struct blk_mq_ctx *ctx,
-			     struct request *rq)
+void blk_mq_free_request(struct request *rq)
 {
-	const int sched_tag = rq->internal_tag;
 	struct request_queue *q = rq->q;
+	struct elevator_queue *e = q->elevator;
+	struct blk_mq_ctx *ctx = rq->mq_ctx;
+	struct blk_mq_hw_ctx *hctx = blk_mq_map_queue(q, ctx->cpu);
+	const int sched_tag = rq->internal_tag;
 
+	if (rq->rq_flags & RQF_ELVPRIV) {
+		if (e && e->type->ops.mq.finish_request)
+			e->type->ops.mq.finish_request(rq);
+		if (rq->elv.icq) {
+			put_io_context(rq->elv.icq->ioc);
+			rq->elv.icq = NULL;
+		}
+	}
+
+	ctx->rq_completed[rq_is_sync(rq)]++;
 	if (rq->rq_flags & RQF_MQ_INFLIGHT)
 		atomic_dec(&hctx->nr_active);
 
@@ -371,26 +413,6 @@ void __blk_mq_finish_request(struct blk_mq_hw_ctx *hctx, struct blk_mq_ctx *ctx,
 		blk_mq_put_tag(hctx, hctx->sched_tags, ctx, sched_tag);
 	blk_mq_sched_restart(hctx);
 	blk_queue_exit(q);
-}
-
-static void blk_mq_finish_hctx_request(struct blk_mq_hw_ctx *hctx,
-				     struct request *rq)
-{
-	struct blk_mq_ctx *ctx = rq->mq_ctx;
-
-	ctx->rq_completed[rq_is_sync(rq)]++;
-	__blk_mq_finish_request(hctx, ctx, rq);
-}
-
-void blk_mq_finish_request(struct request *rq)
-{
-	blk_mq_finish_hctx_request(blk_mq_map_queue(rq->q, rq->mq_ctx->cpu), rq);
-}
-EXPORT_SYMBOL_GPL(blk_mq_finish_request);
-
-void blk_mq_free_request(struct request *rq)
-{
-	blk_mq_sched_put_request(rq);
 }
 EXPORT_SYMBOL_GPL(blk_mq_free_request);
 
@@ -1495,7 +1517,7 @@ static blk_qc_t blk_mq_make_request(struct request_queue *q, struct bio *bio)
 
 	trace_block_getrq(q, bio, bio->bi_opf);
 
-	rq = blk_mq_sched_get_request(q, bio, bio->bi_opf, &data);
+	rq = blk_mq_get_request(q, bio, bio->bi_opf, &data);
 	if (unlikely(!rq)) {
 		__wbt_done(q->rq_wb, wb_acct);
 		return BLK_QC_T_NONE;
