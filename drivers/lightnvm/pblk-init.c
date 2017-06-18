@@ -23,6 +23,7 @@
 static struct kmem_cache *pblk_blk_ws_cache, *pblk_rec_cache, *pblk_r_rq_cache,
 					*pblk_w_rq_cache, *pblk_line_meta_cache;
 static DECLARE_RWSEM(pblk_lock);
+struct bio_set *pblk_bio_set;
 
 static int pblk_rw_io(struct request_queue *q, struct pblk *pblk,
 			  struct bio *bio)
@@ -33,7 +34,7 @@ static int pblk_rw_io(struct request_queue *q, struct pblk *pblk,
 	 * constraint. Writes can be of arbitrary size.
 	 */
 	if (bio_data_dir(bio) == READ) {
-		blk_queue_split(q, &bio, q->bio_split);
+		blk_queue_split(q, &bio);
 		ret = pblk_submit_read(pblk, bio);
 		if (ret == NVM_IO_DONE && bio_flagged(bio, BIO_CLONED))
 			bio_put(bio);
@@ -46,7 +47,7 @@ static int pblk_rw_io(struct request_queue *q, struct pblk *pblk,
 	 * available for user I/O.
 	 */
 	if (unlikely(pblk_get_secs(bio) >= pblk_rl_sysfs_rate_show(&pblk->rl)))
-		blk_queue_split(q, &bio, q->bio_split);
+		blk_queue_split(q, &bio);
 
 	return pblk_write_to_cache(pblk, bio, PBLK_IOTYPE_USER);
 }
@@ -946,11 +947,20 @@ static struct nvm_tgt_type tt_pblk = {
 
 static int __init pblk_module_init(void)
 {
-	return nvm_register_tgt_type(&tt_pblk);
+	int ret;
+
+	pblk_bio_set = bioset_create(BIO_POOL_SIZE, 0, 0);
+	if (!pblk_bio_set)
+		return -ENOMEM;
+	ret = nvm_register_tgt_type(&tt_pblk);
+	if (ret)
+		bioset_free(pblk_bio_set);
+	return ret;
 }
 
 static void pblk_module_exit(void)
 {
+	bioset_free(pblk_bio_set);
 	nvm_unregister_tgt_type(&tt_pblk);
 }
 

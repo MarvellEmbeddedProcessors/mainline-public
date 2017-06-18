@@ -185,7 +185,7 @@ static int start_readonly;
 static bool create_on_open = true;
 
 /* bio_clone_mddev
- * like bio_clone, but with a local bio set
+ * like bio_clone_bioset, but with a local bio set
  */
 
 struct bio *bio_alloc_mddev(gfp_t gfp_mask, int nr_iovecs,
@@ -265,7 +265,7 @@ static blk_qc_t md_make_request(struct request_queue *q, struct bio *bio)
 	unsigned int sectors;
 	int cpu;
 
-	blk_queue_split(q, &bio, q->bio_split);
+	blk_queue_split(q, &bio);
 
 	if (mddev == NULL || mddev->pers == NULL) {
 		bio_io_error(bio);
@@ -5428,7 +5428,7 @@ int md_run(struct mddev *mddev)
 	}
 
 	if (mddev->bio_set == NULL) {
-		mddev->bio_set = bioset_create(BIO_POOL_SIZE, 0);
+		mddev->bio_set = bioset_create(BIO_POOL_SIZE, 0, BIOSET_NEED_BVECS);
 		if (!mddev->bio_set)
 			return -ENOMEM;
 	}
