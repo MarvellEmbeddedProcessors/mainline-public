@@ -93,7 +93,6 @@ int ide_queue_pc_tail(ide_drive_t *drive, struct gendisk *disk,
 	int error;
 
 	rq = blk_get_request(drive->queue, REQ_OP_DRV_IN, __GFP_RECLAIM);
-	scsi_req_init(rq);
 	ide_req(rq)->type = ATA_PRIV_MISC;
 	rq->special = (char *)pc;
 
@@ -200,7 +199,7 @@ void ide_prep_sense(ide_drive_t *drive, struct request *rq)
 	memset(sense, 0, sizeof(*sense));
 
 	blk_rq_init(rq->q, sense_rq);
-	scsi_req_init(sense_rq);
+	scsi_req_init(req);
 
 	err = blk_rq_map_kern(drive->queue, sense_rq, sense, sense_len,
 			      GFP_NOIO);

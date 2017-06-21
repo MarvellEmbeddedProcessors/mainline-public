@@ -39,8 +39,6 @@ struct blk_mq_hw_ctx {
 	struct blk_mq_tags	*tags;
 	struct blk_mq_tags	*sched_tags;
 
-	struct srcu_struct	queue_rq_srcu;
-
 	unsigned long		queued;
 	unsigned long		run;
 #define BLK_MQ_MAX_DISPATCH_ORDER	7
@@ -62,6 +60,9 @@ struct blk_mq_hw_ctx {
 	struct dentry		*debugfs_dir;
 	struct dentry		*sched_debugfs_dir;
 #endif
+
+	/* Must be the last member - see also blk_mq_hw_ctx_size(). */
+	struct srcu_struct	queue_rq_srcu[0];
 };
 
 struct blk_mq_tag_set {
@@ -143,6 +144,8 @@ struct blk_mq_ops {
 	init_request_fn		*init_request;
 	exit_request_fn		*exit_request;
 	reinit_request_fn	*reinit_request;
+	/* Called from inside blk_get_request() */
+	void (*initialize_rq_fn)(struct request *rq);
 
 	map_queues_fn		*map_queues;
 
@@ -201,10 +204,10 @@ enum {
 	BLK_MQ_REQ_INTERNAL	= (1 << 2), /* allocate internal/sched tag */
 };
 
-struct request *blk_mq_alloc_request(struct request_queue *q, int rw,
+struct request *blk_mq_alloc_request(struct request_queue *q, unsigned int op,
 		unsigned int flags);
-struct request *blk_mq_alloc_request_hctx(struct request_queue *q, int op,
-		unsigned int flags, unsigned int hctx_idx);
+struct request *blk_mq_alloc_request_hctx(struct request_queue *q,
+		unsigned int op, unsigned int flags, unsigned int hctx_idx);
 struct request *blk_mq_tag_to_rq(struct blk_mq_tags *tags, unsigned int tag);
 
 enum {

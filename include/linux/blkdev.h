@@ -410,8 +410,12 @@ struct request_queue {
 	rq_timed_out_fn		*rq_timed_out_fn;
 	dma_drain_needed_fn	*dma_drain_needed;
 	lld_busy_fn		*lld_busy_fn;
+	/* Called just after a request is allocated */
 	init_rq_fn		*init_rq_fn;
+	/* Called just before a request is freed */
 	exit_rq_fn		*exit_rq_fn;
+	/* Called from inside blk_get_request() */
+	void (*initialize_rq_fn)(struct request *rq);
 
 	const struct blk_mq_ops	*mq_ops;
 
@@ -631,6 +635,13 @@ struct request_queue {
 				 (1 << QUEUE_FLAG_SAME_COMP)	|	\
 				 (1 << QUEUE_FLAG_POLL))
 
+/*
+ * @q->queue_lock is set while a queue is being initialized. Since we know
+ * that no other threads access the queue object before @q->queue_lock has
+ * been set, it is safe to manipulate queue flags without holding the
+ * queue_lock if @q->queue_lock == NULL. See also blk_alloc_queue_node() and
+ * blk_init_allocated_queue().
+ */
 static inline void queue_lockdep_assert_held(struct request_queue *q)
 {
 	if (q->queue_lock)
@@ -935,7 +946,8 @@ extern void blk_rq_init(struct request_queue *q, struct request *rq);
 extern void blk_init_request_from_bio(struct request *req, struct bio *bio);
 extern void blk_put_request(struct request *);
 extern void __blk_put_request(struct request_queue *, struct request *);
-extern struct request *blk_get_request(struct request_queue *, int, gfp_t);
+extern struct request *blk_get_request(struct request_queue *, unsigned int op,
+				       gfp_t gfp_mask);
 extern void blk_requeue_request(struct request_queue *, struct request *);
 extern int blk_lld_busy(struct request_queue *q);
 extern int blk_rq_prep_clone(struct request *rq, struct request *rq_src,
