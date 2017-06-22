@@ -592,6 +592,12 @@ int smb3_validate_negotiate(const unsigned int xid, struct cifs_tcon *tcon)
 
 	cifs_dbg(FYI, "validate negotiate\n");
 
+#ifdef CONFIG_CIFS_SMB311
+	/* Validate negotiate only valid for 3.0 and 3.02 dialects, not later */
+	if (!(tcon->ses->server->vals->protocol_id == SMB30_PROT_ID) ||
+	     (tcon->ses->server->vals->protocol_id == SMB302_PROT_ID))
+		return 0;
+#endif
 	/*
 	 * validation ioctl must be signed, so no point sending this if we
 	 * can not sign it.  We could eventually change this to selectively
