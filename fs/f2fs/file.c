@@ -202,7 +202,7 @@ static int f2fs_do_sync_file(struct file *file, loff_t start, loff_t end,
 		return 0;
 
 	trace_f2fs_sync_file_enter(inode);
-
+retry:
 	/* if fdatasync is triggered, let's do in-place-update */
 	if (datasync || get_dirty_pages(inode) <= SM_I(sbi)->min_fsync_blocks)
 		set_inode_flag(inode, FI_NEED_IPU);
@@ -210,6 +210,12 @@ static int f2fs_do_sync_file(struct file *file, loff_t start, loff_t end,
 	clear_inode_flag(inode, FI_NEED_IPU);
 
 	if (ret) {
+		/*
+		 * if we just report failure caused by lock contention, we
+		 * would better retry to flush again
+		 */
+		if (ret == -EAGAIN)
+			goto retry;
 		trace_f2fs_sync_file_exit(inode, need_cp, datasync, ret);
 		return ret;
 	}
