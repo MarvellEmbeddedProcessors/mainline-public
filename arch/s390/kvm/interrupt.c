@@ -2838,7 +2838,7 @@ void kvm_s390_gisa_clear(struct kvm *kvm)
 
 void kvm_s390_gisa_init(struct kvm *kvm)
 {
-	if (1 || !css_general_characteristics.aiv)
+	if (!css_general_characteristics.aiv)
 		kvm->arch.gisa = NULL;
 	else {
 		kvm->arch.gisa = &kvm->arch.sie_page2->gisa;
