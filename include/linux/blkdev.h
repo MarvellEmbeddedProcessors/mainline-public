@@ -225,6 +225,8 @@ struct request {
 
 	unsigned int extra_len;	/* length of alignment and padding */
 
+	unsigned short write_hint;
+
 	unsigned long deadline;
 	struct list_head timeout_list;
 
@@ -594,6 +596,9 @@ struct request_queue {
 	void			*rq_alloc_data;
 
 	struct work_struct	release_work;
+
+#define BLK_MAX_WRITE_HINTS	5
+	u64			write_hints[BLK_MAX_WRITE_HINTS];
 };
 
 #define QUEUE_FLAG_QUEUED	1	/* uses generic tag queueing */
