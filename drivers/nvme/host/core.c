@@ -27,7 +27,6 @@
 #include <linux/nvme_ioctl.h>
 #include <linux/t10-pi.h>
 #include <linux/pm_qos.h>
-#include <scsi/sg.h>
 #include <asm/unaligned.h>
 
 #include "nvme.h"
@@ -756,7 +755,7 @@ void nvme_stop_keep_alive(struct nvme_ctrl *ctrl)
 }
 EXPORT_SYMBOL_GPL(nvme_stop_keep_alive);
 
-int nvme_identify_ctrl(struct nvme_ctrl *dev, struct nvme_id_ctrl **id)
+static int nvme_identify_ctrl(struct nvme_ctrl *dev, struct nvme_id_ctrl **id)
 {
 	struct nvme_command c = { };
 	int error;
@@ -857,7 +856,7 @@ static int nvme_identify_ns_list(struct nvme_ctrl *dev, unsigned nsid, __le32 *n
 	return nvme_submit_sync_cmd(dev->admin_q, &c, ns_list, 0x1000);
 }
 
-int nvme_identify_ns(struct nvme_ctrl *dev, unsigned nsid,
+static int nvme_identify_ns(struct nvme_ctrl *dev, unsigned nsid,
 		struct nvme_id_ns **id)
 {
 	struct nvme_command c = { };
@@ -879,26 +878,7 @@ int nvme_identify_ns(struct nvme_ctrl *dev, unsigned nsid,
 	return error;
 }
 
-int nvme_get_features(struct nvme_ctrl *dev, unsigned fid, unsigned nsid,
-		      void *buffer, size_t buflen, u32 *result)
-{
-	struct nvme_command c;
-	union nvme_result res;
-	int ret;
-
-	memset(&c, 0, sizeof(c));
-	c.features.opcode = nvme_admin_get_features;
-	c.features.nsid = cpu_to_le32(nsid);
-	c.features.fid = cpu_to_le32(fid);
-
-	ret = __nvme_submit_sync_cmd(dev->admin_q, &c, &res, buffer, buflen, 0,
-			NVME_QID_ANY, 0, 0);
-	if (ret >= 0 && result)
-		*result = le32_to_cpu(res.u32);
-	return ret;
-}
-
-int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword11,
+static int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword11,
 		      void *buffer, size_t buflen, u32 *result)
 {
 	struct nvme_command c;
@@ -915,28 +895,6 @@ int nvme_set_features(struct nvme_ctrl *dev, unsigned fid, unsigned dword11,
 	if (ret >= 0 && result)
 		*result = le32_to_cpu(res.u32);
 	return ret;
-}
-
-int nvme_get_log_page(struct nvme_ctrl *dev, struct nvme_smart_log **log)
-{
-	struct nvme_command c = { };
-	int error;
-
-	c.common.opcode = nvme_admin_get_log_page,
-	c.common.nsid = cpu_to_le32(0xFFFFFFFF),
-	c.common.cdw10[0] = cpu_to_le32(
-			(((sizeof(struct nvme_smart_log) / 4) - 1) << 16) |
-			 NVME_LOG_SMART),
-
-	*log = kmalloc(sizeof(struct nvme_smart_log), GFP_KERNEL);
-	if (!*log)
-		return -ENOMEM;
-
-	error = nvme_submit_sync_cmd(dev->admin_q, &c, *log,
-			sizeof(struct nvme_smart_log));
-	if (error)
-		kfree(*log);
-	return error;
 }
 
 int nvme_set_queue_count(struct nvme_ctrl *ctrl, int *count)
@@ -1074,12 +1032,6 @@ static int nvme_ioctl(struct block_device *bdev, fmode_t mode,
 		return nvme_user_cmd(ns->ctrl, ns, (void __user *)arg);
 	case NVME_IOCTL_SUBMIT_IO:
 		return nvme_submit_io(ns, (void __user *)arg);
-#ifdef CONFIG_BLK_DEV_NVME_SCSI
-	case SG_GET_VERSION_NUM:
-		return nvme_sg_get_version_num((void __user *)arg);
-	case SG_IO:
-		return nvme_sg_io(ns, (void __user *)arg);
-#endif
 	default:
 #ifdef CONFIG_NVM
 		if (ns->ndev)
@@ -1096,10 +1048,6 @@ static int nvme_ioctl(struct block_device *bdev, fmode_t mode,
 static int nvme_compat_ioctl(struct block_device *bdev, fmode_t mode,
 			unsigned int cmd, unsigned long arg)
 {
-	switch (cmd) {
-	case SG_IO:
-		return -ENOIOCTLCMD;
-	}
 	return nvme_ioctl(bdev, mode, cmd, arg);
 }
 #else
@@ -1601,7 +1549,7 @@ static void nvme_configure_apst(struct nvme_ctrl *ctrl)
 	if (!table)
 		return;
 
-	if (ctrl->ps_max_latency_us == 0) {
+	if (!ctrl->apst_enabled || ctrl->ps_max_latency_us == 0) {
 		/* Turn off APST. */
 		apste = 0;
 		dev_dbg(ctrl->device, "APST disabled\n");
@@ -1757,6 +1705,31 @@ static bool quirk_matches(const struct nvme_id_ctrl *id,
 		string_matches(id->fr, q->fr, sizeof(id->fr));
 }
 
+static void nvme_init_subnqn(struct nvme_ctrl *ctrl, struct nvme_id_ctrl *id)
+{
+	size_t nqnlen;
+	int off;
+
+	nqnlen = strnlen(id->subnqn, NVMF_NQN_SIZE);
+	if (nqnlen > 0 && nqnlen < NVMF_NQN_SIZE) {
+		strcpy(ctrl->subnqn, id->subnqn);
+		return;
+	}
+
+	if (ctrl->vs >= NVME_VS(1, 2, 1))
+		dev_warn(ctrl->device, "missing or invalid SUBNQN field.\n");
+
+	/* Generate a "fake" NQN per Figure 254 in NVMe 1.3 + ECN 001 */
+	off = snprintf(ctrl->subnqn, NVMF_NQN_SIZE,
+			"nqn.2014.08.org.nvmexpress:%4x%4x",
+			le16_to_cpu(id->vid), le16_to_cpu(id->ssvid));
+	memcpy(ctrl->subnqn + off, id->sn, sizeof(id->sn));
+	off += sizeof(id->sn);
+	memcpy(ctrl->subnqn + off, id->mn, sizeof(id->mn));
+	off += sizeof(id->mn);
+	memset(ctrl->subnqn + off, 0, sizeof(ctrl->subnqn) - off);
+}
+
 /*
  * Initialize the cached copies of the Identify data and various controller
  * register in our nvme_ctrl structure.  This should be called as soon as
@@ -1768,7 +1741,7 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 	u64 cap;
 	int ret, page_shift;
 	u32 max_hw_sectors;
-	u8 prev_apsta;
+	bool prev_apst_enabled;
 
 	ret = ctrl->ops->reg_read32(ctrl, NVME_REG_VS, &ctrl->vs);
 	if (ret) {
@@ -1791,6 +1764,8 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 		dev_err(ctrl->device, "Identify Controller failed (%d)\n", ret);
 		return -EIO;
 	}
+
+	nvme_init_subnqn(ctrl, id);
 
 	if (!ctrl->identified) {
 		/*
@@ -1836,16 +1811,17 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 	ctrl->kas = le16_to_cpu(id->kas);
 
 	ctrl->npss = id->npss;
-	prev_apsta = ctrl->apsta;
+	ctrl->apsta = id->apsta;
+	prev_apst_enabled = ctrl->apst_enabled;
 	if (ctrl->quirks & NVME_QUIRK_NO_APST) {
 		if (force_apst && id->apsta) {
 			dev_warn(ctrl->device, "forcibly allowing APST due to nvme_core.force_apst -- use at your own risk\n");
-			ctrl->apsta = 1;
+			ctrl->apst_enabled = true;
 		} else {
-			ctrl->apsta = 0;
+			ctrl->apst_enabled = false;
 		}
 	} else {
-		ctrl->apsta = id->apsta;
+		ctrl->apst_enabled = id->apsta;
 	}
 	memcpy(ctrl->psd, id->psd, sizeof(ctrl->psd));
 
@@ -1875,9 +1851,9 @@ int nvme_init_identify(struct nvme_ctrl *ctrl)
 
 	kfree(id);
 
-	if (ctrl->apsta && !prev_apsta)
+	if (ctrl->apst_enabled && !prev_apst_enabled)
 		dev_pm_qos_expose_latency_tolerance(ctrl->device);
-	else if (!ctrl->apsta && prev_apsta)
+	else if (!ctrl->apst_enabled && prev_apst_enabled)
 		dev_pm_qos_hide_latency_tolerance(ctrl->device);
 
 	nvme_configure_apst(ctrl);
@@ -2186,8 +2162,7 @@ static ssize_t nvme_sysfs_show_subsysnqn(struct device *dev,
 {
 	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
 
-	return snprintf(buf, PAGE_SIZE, "%s\n",
-			ctrl->ops->get_subsysnqn(ctrl));
+	return snprintf(buf, PAGE_SIZE, "%s\n", ctrl->subnqn);
 }
 static DEVICE_ATTR(subsysnqn, S_IRUGO, nvme_sysfs_show_subsysnqn, NULL);
 
@@ -2216,24 +2191,16 @@ static struct attribute *nvme_dev_attrs[] = {
 	NULL
 };
 
-#define CHECK_ATTR(ctrl, a, name)		\
-	if ((a) == &dev_attr_##name.attr &&	\
-	    !(ctrl)->ops->get_##name)		\
-		return 0
-
 static umode_t nvme_dev_attrs_are_visible(struct kobject *kobj,
 		struct attribute *a, int n)
 {
 	struct device *dev = container_of(kobj, struct device, kobj);
 	struct nvme_ctrl *ctrl = dev_get_drvdata(dev);
 
-	if (a == &dev_attr_delete_controller.attr) {
-		if (!ctrl->ops->delete_ctrl)
-			return 0;
-	}
-
-	CHECK_ATTR(ctrl, a, subsysnqn);
-	CHECK_ATTR(ctrl, a, address);
+	if (a == &dev_attr_delete_controller.attr && !ctrl->ops->delete_ctrl)
+		return 0;
+	if (a == &dev_attr_address.attr && !ctrl->ops->get_address)
+		return 0;
 
 	return a->mode;
 }

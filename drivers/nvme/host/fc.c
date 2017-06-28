@@ -36,7 +36,7 @@
  */
 #define NVME_FC_NR_AEN_COMMANDS	1
 #define NVME_FC_AQ_BLKMQ_DEPTH	\
-	(NVMF_AQ_DEPTH - NVME_FC_NR_AEN_COMMANDS)
+	(NVME_AQ_DEPTH - NVME_FC_NR_AEN_COMMANDS)
 #define AEN_CMDID_BASE		(NVME_FC_AQ_BLKMQ_DEPTH + 1)
 
 enum nvme_fc_queue_flags {
@@ -166,6 +166,7 @@ struct nvme_fc_ctrl {
 	struct kref		ref;
 	u32			flags;
 	u32			iocnt;
+	wait_queue_head_t	ioabort_wait;
 
 	struct nvme_fc_fcp_op	aen_ops[NVME_FC_NR_AEN_COMMANDS];
 
@@ -1239,8 +1240,10 @@ __nvme_fc_fcpop_chk_teardowns(struct nvme_fc_ctrl *ctrl,
 
 	spin_lock_irqsave(&ctrl->lock, flags);
 	if (unlikely(op->flags & FCOP_FLAGS_TERMIO)) {
-		if (ctrl->flags & FCCTRL_TERMIO)
-			ctrl->iocnt--;
+		if (ctrl->flags & FCCTRL_TERMIO) {
+			if (!--ctrl->iocnt)
+				wake_up(&ctrl->ioabort_wait);
+		}
 	}
 	if (op->flags & FCOP_FLAGS_RELEASED)
 		complete_rq = true;
@@ -1746,15 +1749,15 @@ nvme_fc_nvme_ctrl_freed(struct nvme_ctrl *nctrl)
 static void
 nvme_fc_error_recovery(struct nvme_fc_ctrl *ctrl, char *errmsg)
 {
+	/* only proceed if in LIVE state - e.g. on first error */
+	if (ctrl->ctrl.state != NVME_CTRL_LIVE)
+		return;
+
 	dev_warn(ctrl->ctrl.device,
 		"NVME-FC{%d}: transport association error detected: %s\n",
 		ctrl->cnum, errmsg);
 	dev_warn(ctrl->ctrl.device,
 		"NVME-FC{%d}: resetting controller\n", ctrl->cnum);
-
-	/* stop the queues on error, cleanup is in reset thread */
-	if (ctrl->queue_count > 1)
-		nvme_stop_queues(&ctrl->ctrl);
 
 	if (!nvme_change_ctrl_state(&ctrl->ctrl, NVME_CTRL_RECONNECTING)) {
 		dev_err(ctrl->ctrl.device,
@@ -1957,10 +1960,8 @@ nvme_fc_start_fcp_op(struct nvme_fc_ctrl *ctrl, struct nvme_fc_queue *queue,
 					queue->lldd_handle, &op->fcp_req);
 
 	if (ret) {
-		if (op->rq) {			/* normal request */
+		if (op->rq)			/* normal request */
 			nvme_fc_unmap_data(ctrl, op->rq, op);
-			nvme_cleanup_cmd(op->rq);
-		}
 		/* else - aen. no cleanup needed */
 
 		nvme_fc_ctrl_put(ctrl);
@@ -2078,7 +2079,6 @@ __nvme_fc_final_op_cleanup(struct request *rq)
 	op->flags &= ~(FCOP_FLAGS_TERMIO | FCOP_FLAGS_RELEASED |
 			FCOP_FLAGS_COMPLETE);
 
-	nvme_cleanup_cmd(rq);
 	nvme_fc_unmap_data(ctrl, rq, op);
 	nvme_complete_rq(rq);
 	nvme_fc_ctrl_put(ctrl);
@@ -2479,11 +2479,7 @@ nvme_fc_delete_association(struct nvme_fc_ctrl *ctrl)
 
 	/* wait for all io that had to be aborted */
 	spin_lock_irqsave(&ctrl->lock, flags);
-	while (ctrl->iocnt) {
-		spin_unlock_irqrestore(&ctrl->lock, flags);
-		msleep(1000);
-		spin_lock_irqsave(&ctrl->lock, flags);
-	}
+	wait_event_lock_irq(ctrl->ioabort_wait, ctrl->iocnt == 0, ctrl->lock);
 	ctrl->flags &= ~FCCTRL_TERMIO;
 	spin_unlock_irqrestore(&ctrl->lock, flags);
 
@@ -2631,7 +2627,6 @@ static const struct nvme_ctrl_ops nvme_fc_ctrl_ops = {
 	.free_ctrl		= nvme_fc_nvme_ctrl_freed,
 	.submit_async_event	= nvme_fc_submit_async_event,
 	.delete_ctrl		= nvme_fc_del_nvme_ctrl,
-	.get_subsysnqn		= nvmf_get_subsysnqn,
 	.get_address		= nvmf_get_address,
 };
 
@@ -2767,6 +2762,9 @@ nvme_fc_init_ctrl(struct device *dev, struct nvmf_ctrl_options *opts,
 		ctrl->ctrl.opts = NULL;
 		/* initiate nvme ctrl ref counting teardown */
 		nvme_uninit_ctrl(&ctrl->ctrl);
+		nvme_put_ctrl(&ctrl->ctrl);
+
+		/* Remove core ctrl ref. */
 		nvme_put_ctrl(&ctrl->ctrl);
 
 		/* as we're past the point where we transition to the ref
