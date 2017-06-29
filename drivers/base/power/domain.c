@@ -902,18 +902,18 @@ static int pm_genpd_prepare(struct device *dev)
 }
 
 /**
- * pm_genpd_suspend_noirq - Completion of suspend of device in an I/O PM domain.
+ * genpd_finish_suspend - Completion of suspend or hibernation of device in an
+ *   I/O pm domain.
  * @dev: Device to suspend.
+ * @poweroff: Specifies if this is a poweroff_noirq or suspend_noirq callback.
  *
  * Stop the device and remove power from the domain if all devices in it have
  * been stopped.
  */
-static int pm_genpd_suspend_noirq(struct device *dev)
+static int genpd_finish_suspend(struct device *dev, bool poweroff)
 {
 	struct generic_pm_domain *genpd;
 	int ret;
-
-	dev_dbg(dev, "%s()\n", __func__);
 
 	genpd = dev_to_genpd(dev);
 	if (IS_ERR(genpd))
@@ -921,6 +921,13 @@ static int pm_genpd_suspend_noirq(struct device *dev)
 
 	if (dev->power.wakeup_path && genpd_dev_active_wakeup(genpd, dev))
 		return 0;
+
+	if (poweroff)
+		ret = pm_generic_poweroff_noirq(dev);
+	else
+		ret = pm_generic_suspend_noirq(dev);
+	if (ret)
+		return ret;
 
 	if (genpd->dev_ops.stop && genpd->dev_ops.start) {
 		ret = pm_runtime_force_suspend(dev);
@@ -934,6 +941,20 @@ static int pm_genpd_suspend_noirq(struct device *dev)
 	genpd_unlock(genpd);
 
 	return 0;
+}
+
+/**
+ * pm_genpd_suspend_noirq - Completion of suspend of device in an I/O PM domain.
+ * @dev: Device to suspend.
+ *
+ * Stop the device and remove power from the domain if all devices in it have
+ * been stopped.
+ */
+static int pm_genpd_suspend_noirq(struct device *dev)
+{
+	dev_dbg(dev, "%s()\n", __func__);
+
+	return genpd_finish_suspend(dev, false);
 }
 
 /**
@@ -964,6 +985,10 @@ static int pm_genpd_resume_noirq(struct device *dev)
 	if (genpd->dev_ops.stop && genpd->dev_ops.start)
 		ret = pm_runtime_force_resume(dev);
 
+	ret = pm_generic_resume_noirq(dev);
+	if (ret)
+		return ret;
+
 	return ret;
 }
 
@@ -986,6 +1011,10 @@ static int pm_genpd_freeze_noirq(struct device *dev)
 	genpd = dev_to_genpd(dev);
 	if (IS_ERR(genpd))
 		return -EINVAL;
+
+	ret = pm_generic_freeze_noirq(dev);
+	if (ret)
+		return ret;
 
 	if (genpd->dev_ops.stop && genpd->dev_ops.start)
 		ret = pm_runtime_force_suspend(dev);
@@ -1011,10 +1040,28 @@ static int pm_genpd_thaw_noirq(struct device *dev)
 	if (IS_ERR(genpd))
 		return -EINVAL;
 
-	if (genpd->dev_ops.stop && genpd->dev_ops.start)
+	if (genpd->dev_ops.stop && genpd->dev_ops.start) {
 		ret = pm_runtime_force_resume(dev);
+		if (ret)
+			return ret;
+	}
 
-	return ret;
+	return pm_generic_thaw_noirq(dev);
+}
+
+/**
+ * pm_genpd_poweroff_noirq - Completion of hibernation of device in an
+ *   I/O PM domain.
+ * @dev: Device to poweroff.
+ *
+ * Stop the device and remove power from the domain if all devices in it have
+ * been stopped.
+ */
+static int pm_genpd_poweroff_noirq(struct device *dev)
+{
+	dev_dbg(dev, "%s()\n", __func__);
+
+	return genpd_finish_suspend(dev, true);
 }
 
 /**
@@ -1051,10 +1098,13 @@ static int pm_genpd_restore_noirq(struct device *dev)
 	genpd_sync_power_on(genpd, true, 0);
 	genpd_unlock(genpd);
 
-	if (genpd->dev_ops.stop && genpd->dev_ops.start)
+	if (genpd->dev_ops.stop && genpd->dev_ops.start) {
 		ret = pm_runtime_force_resume(dev);
+		if (ret)
+			return ret;
+	}
 
-	return ret;
+	return pm_generic_restore_noirq(dev);
 }
 
 /**
@@ -1098,8 +1148,8 @@ static void genpd_syscore_switch(struct device *dev, bool suspend)
 {
 	struct generic_pm_domain *genpd;
 
-	genpd = dev_to_genpd(dev);
-	if (!pm_genpd_present(genpd))
+	genpd = genpd_lookup_dev(dev);
+	if (!genpd)
 		return;
 
 	if (suspend) {
@@ -1396,7 +1446,7 @@ EXPORT_SYMBOL_GPL(pm_genpd_add_subdomain);
 int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
 			      struct generic_pm_domain *subdomain)
 {
-	struct gpd_link *link;
+	struct gpd_link *l, *link;
 	int ret = -EINVAL;
 
 	if (IS_ERR_OR_NULL(genpd) || IS_ERR_OR_NULL(subdomain))
@@ -1412,7 +1462,7 @@ int pm_genpd_remove_subdomain(struct generic_pm_domain *genpd,
 		goto out;
 	}
 
-	list_for_each_entry(link, &genpd->master_links, master_node) {
+	list_for_each_entry_safe(link, l, &genpd->master_links, master_node) {
 		if (link->slave != subdomain)
 			continue;
 
@@ -1496,7 +1546,7 @@ int pm_genpd_init(struct generic_pm_domain *genpd,
 	genpd->domain.ops.resume_noirq = pm_genpd_resume_noirq;
 	genpd->domain.ops.freeze_noirq = pm_genpd_freeze_noirq;
 	genpd->domain.ops.thaw_noirq = pm_genpd_thaw_noirq;
-	genpd->domain.ops.poweroff_noirq = pm_genpd_suspend_noirq;
+	genpd->domain.ops.poweroff_noirq = pm_genpd_poweroff_noirq;
 	genpd->domain.ops.restore_noirq = pm_genpd_restore_noirq;
 	genpd->domain.ops.complete = pm_genpd_complete;
 
@@ -1783,12 +1833,12 @@ EXPORT_SYMBOL_GPL(of_genpd_add_provider_onecell);
  */
 void of_genpd_del_provider(struct device_node *np)
 {
-	struct of_genpd_provider *cp;
+	struct of_genpd_provider *cp, *tmp;
 	struct generic_pm_domain *gpd;
 
 	mutex_lock(&gpd_list_lock);
 	mutex_lock(&of_genpd_mutex);
-	list_for_each_entry(cp, &of_genpd_providers, link) {
+	list_for_each_entry_safe(cp, tmp, &of_genpd_providers, link) {
 		if (cp->node == np) {
 			/*
 			 * For each PM domain associated with the
@@ -1928,14 +1978,14 @@ EXPORT_SYMBOL_GPL(of_genpd_add_subdomain);
  */
 struct generic_pm_domain *of_genpd_remove_last(struct device_node *np)
 {
-	struct generic_pm_domain *gpd, *genpd = ERR_PTR(-ENOENT);
+	struct generic_pm_domain *gpd, *tmp, *genpd = ERR_PTR(-ENOENT);
 	int ret;
 
 	if (IS_ERR_OR_NULL(np))
 		return ERR_PTR(-EINVAL);
 
 	mutex_lock(&gpd_list_lock);
-	list_for_each_entry(gpd, &gpd_list, gpd_list_node) {
+	list_for_each_entry_safe(gpd, tmp, &gpd_list, gpd_list_node) {
 		if (gpd->provider == &np->fwnode) {
 			ret = genpd_remove(gpd);
 			genpd = ret ? ERR_PTR(ret) : gpd;
