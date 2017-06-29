@@ -1321,6 +1321,9 @@ static int ata_scsi_dev_config(struct scsi_device *sdev,
 
 	blk_queue_flush_queueable(q, false);
 
+	if (dev->flags & ATA_DFLAG_TRUSTED)
+		sdev->security_supported = 1;
+
 	dev->sdev = sdev;
 	return 0;
 }
@@ -4191,7 +4194,6 @@ static unsigned int ata_scsi_var_len_cdb_xlat(struct ata_queued_cmd *qc)
 	if (sa == ATA_32)
 		return ata_scsi_pass_thru(qc);
 
-unspprt_sa:
 	/* unsupported service action */
 	return 1;
 }
