@@ -1401,10 +1401,7 @@ static int kill_something_info(int sig, struct siginfo *info, pid_t pid)
 		return ret;
 	}
 
-	/*
-	 * -INT_MIN is undefined, it need to exclude following case to
-	 * avoid the UBSAN detection.
-	 */
+	/* -INT_MIN is undefined.  Exclude this case to avoid a UBSAN warning */
 	if (pid == INT_MIN)
 		return -ESRCH;
 
