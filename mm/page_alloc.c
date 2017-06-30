@@ -7186,7 +7186,7 @@ static unsigned long __init arch_reserved_kernel_pages(void)
  * quadruples the scale is increased by one, which means the size of hash table
  * only doubles, instead of quadrupling as well.
  */
-#define ADAPT_SCALE_BASE	(64ul << 30)
+#define ADAPT_SCALE_BASE	(64ull << 30)
 #define ADAPT_SCALE_SHIFT	2
 #define ADAPT_SCALE_NPAGES	(ADAPT_SCALE_BASE >> PAGE_SHIFT)
 
@@ -7222,7 +7222,7 @@ void *__init alloc_large_system_hash(const char *tablename,
 			numentries = round_up(numentries, (1<<20)/PAGE_SIZE);
 
 		if (!high_limit) {
-			unsigned long adapt;
+			unsigned long long adapt;
 
 			for (adapt = ADAPT_SCALE_NPAGES; adapt < numentries;
 			     adapt <<= ADAPT_SCALE_SHIFT)
