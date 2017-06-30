@@ -25,7 +25,7 @@ struct vm_area_struct;
 #define ___GFP_FS		0x80u
 #define ___GFP_COLD		0x100u
 #define ___GFP_NOWARN		0x200u
-#define ___GFP_RETRY_MAYFAIL		0x400u
+#define ___GFP_RETRY_MAYFAIL	0x400u
 #define ___GFP_NOFAIL		0x800u
 #define ___GFP_NORETRY		0x1000u
 #define ___GFP_MEMALLOC		0x2000u
@@ -139,10 +139,11 @@ struct vm_area_struct;
  * The default allocator behavior depends on the request size. We have a concept
  * of so called costly allocations (with order > PAGE_ALLOC_COSTLY_ORDER).
  * !costly allocations are too essential to fail so they are implicitly
- * non-failing (with some exceptions like OOM victims might fail) by default while
- * costly requests try to be not disruptive and back off even without invoking
- * the OOM killer. The following three modifiers might be used to override some of
- * these implicit rules
+ * non-failing by default (with some exceptions like OOM victims might fail so
+ * the caller still has to check for failures) while costly requests try to be
+ * not disruptive and back off even without invoking the OOM killer.
+ * The following three modifiers might be used to override some of these
+ * implicit rules
  *
  * __GFP_NORETRY: The VM implementation will try only very lightweight
  *   memory direct reclaim to get some memory under memory pressure (thus
