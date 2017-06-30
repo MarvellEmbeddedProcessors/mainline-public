@@ -620,11 +620,13 @@ static void watchdog_disable_all_cpus(void)
 	}
 }
 
+#ifdef CONFIG_SYSCTL
 static int watchdog_update_cpus(void)
 {
 	return smpboot_update_cpumask_percpu_thread(
 		    &watchdog_threads, &watchdog_cpumask);
 }
+#endif
 
 #else /* SOFTLOCKUP */
 static int watchdog_park_threads(void)
@@ -645,10 +647,12 @@ static void watchdog_disable_all_cpus(void)
 {
 }
 
+#ifdef CONFIG_SYSCTL
 static int watchdog_update_cpus(void)
 {
 	return 0;
 }
+#endif
 
 static void set_sample_period(void)
 {
