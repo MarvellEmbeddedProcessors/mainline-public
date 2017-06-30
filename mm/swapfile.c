@@ -1218,10 +1218,9 @@ void swapcache_free_entries(swp_entry_t *entries, int n)
 	p = NULL;
 
 	/*
-	 * Sort swap entries by swap device, so each lock is only
-	 * taken once.  Although nr_swapfiles isn't absolute correct,
-	 * but the overhead of sort() is so low that it isn't
-	 * necessary to optimize further.
+	 * Sort swap entries by swap device, so each lock is only taken once.
+	 * nr_swapfiles isn't absolutely correct, but the overhead of sort() is
+	 * so low that it isn't necessary to optimize further.
 	 */
 	if (nr_swapfiles > 1)
 		sort(entries, n, sizeof(entries[0]), swp_entry_cmp, NULL);
