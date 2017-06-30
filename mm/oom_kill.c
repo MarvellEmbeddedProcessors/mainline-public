@@ -877,7 +877,7 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 	mm = victim->mm;
 	mmgrab(mm);
 
-	/* Raise event before sending signal: reaper must see this */
+	/* Raise event before sending signal: task reaper must see this */
 	count_vm_event(OOM_KILL);
 	count_memcg_event_mm(mm, OOM_KILL);
 
