@@ -40,7 +40,7 @@ struct sem_array {
 	int			complex_count;	/* pending complex operations */
 	unsigned int		use_global_lock;/* >0: global lock required */
 
-	struct sem		sems[0];
+	struct sem		sems[];
 };
 
 #ifdef CONFIG_SYSVIPC
