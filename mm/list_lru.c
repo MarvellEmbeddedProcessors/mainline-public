@@ -249,6 +249,8 @@ restart:
 		default:
 			BUG();
 		}
+		if (cond_resched_lock(&nlru->lock))
+			goto restart;
 	}
 
 	spin_unlock(&nlru->lock);
