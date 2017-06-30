@@ -59,7 +59,7 @@ static DEFINE_PER_CPU(u64, wd_timer_tb);
  * This will work best with NMI IPIs for crash code so the stuck CPUs
  * can be pulled out to get their backtraces.
  */
-static unsigned long __wd_smp_lock = 0;
+static unsigned long __wd_smp_lock;
 static cpumask_t wd_smp_cpus_pending;
 static cpumask_t wd_smp_cpus_stuck;
 static u64 wd_smp_last_reset_tb;
@@ -359,7 +359,7 @@ static int __init powerpc_watchdog_init(void)
 	err = cpuhp_setup_state(CPUHP_AP_ONLINE_DYN, "powerpc/watchdog:online",
 				start_wd_on_cpu, stop_wd_on_cpu);
 	if (err < 0)
-		pr_warning("Watchdog could not be initialized");
+		pr_warn("Watchdog could not be initialized");
 
 	return 0;
 }
