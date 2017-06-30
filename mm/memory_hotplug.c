@@ -1103,10 +1103,6 @@ void move_pfn_range_to_zone(struct zone *zone,
 	 * are reserved so nobody should be touching them so we should be safe
 	 */
 	memmap_init_zone(nr_pages, nid, zone_idx(zone), start_pfn, MEMMAP_HOTPLUG);
-	for (i = 0; i < nr_pages; i++) {
-		unsigned long pfn = start_pfn + i;
-		set_page_links(pfn_to_page(pfn), zone_idx(zone), nid, pfn);
-	}
 
 	set_zone_contiguous(zone);
 }
