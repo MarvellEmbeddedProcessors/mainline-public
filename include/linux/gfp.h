@@ -158,7 +158,7 @@ struct vm_area_struct;
  *   tasks to attempt high level approaches to freeing memory such as
  *   compaction (which removes fragmentation) and page-out.
  *   There is still a definite limit to the number of retries, but it is
- *   a larger limit than with __GFP_NORERY.
+ *   a larger limit than with __GFP_NORETRY.
  *   Allocations with this flag may fail, but only when there is
  *   genuinely little unused memory. While these allocations do not
  *   directly trigger the OOM killer, their failure indicates that
