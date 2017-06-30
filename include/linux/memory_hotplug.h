@@ -22,8 +22,9 @@ struct resource;
 #define pfn_to_online_page(pfn)				\
 ({							\
 	struct page *___page = NULL;			\
+	unsigned long ___nr = pfn_to_section_nr(pfn);	\
 							\
-	if (online_section_nr(pfn_to_section_nr(pfn)))	\
+	if (___nr < NR_MEM_SECTIONS && online_section_nr(___nr))\
 		___page = pfn_to_page(pfn);		\
 	___page;					\
 })
