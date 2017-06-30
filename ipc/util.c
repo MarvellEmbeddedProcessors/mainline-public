@@ -432,6 +432,8 @@ struct kern_ipc_perm *ipc_rcu_alloc(int size)
 	struct kern_ipc_perm *out = ipc_alloc(size);
 	if (unlikely(!out))
 		return NULL;
+
+	memset(out, 0, size);
 	atomic_set(&out->refcount, 1);
 	return out;
 }
