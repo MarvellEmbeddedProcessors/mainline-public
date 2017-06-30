@@ -525,7 +525,7 @@ static inline void set_huge_swap_pte_at(struct mm_struct *mm, unsigned long addr
 struct hstate {};
 #define alloc_huge_page(v, a, r) NULL
 #define alloc_huge_page_node(h, nid) NULL
-#define alloc_huge_page_nodemask(h, preferred_nid, nmask) NULL
+#define alloc_huge_page_nodemask(h, nmask) NULL
 #define alloc_huge_page_noerr(v, a, r) NULL
 #define alloc_bootmem_huge_page(h) NULL
 #define hstate_file(f) NULL
