@@ -541,15 +541,11 @@ static inline bool zone_intersects(struct zone *zone,
 {
 	if (zone_is_empty(zone))
 		return false;
-	if (start_pfn >= zone_end_pfn(zone))
+	if (start_pfn >= zone_end_pfn(zone) ||
+	    start_pfn + nr_pages <= zone->zone_start_pfn)
 		return false;
 
-	if (zone->zone_start_pfn <= start_pfn)
-		return true;
-	if (start_pfn + nr_pages > zone->zone_start_pfn)
-		return true;
-
-	return false;
+	return true;
 }
 
 /*
