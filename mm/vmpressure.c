@@ -386,11 +386,11 @@ int vmpressure_register_event(struct mem_cgroup *memcg,
 	struct vmpressure_event *ev;
 	enum vmpressure_modes mode = VMPRESSURE_NO_PASSTHROUGH;
 	enum vmpressure_levels level = -1;
-	char *spec = NULL;
+	char *spec, *spec_orig;
 	char *token;
 	int ret = 0;
 
-	spec = kzalloc(MAX_VMPRESSURE_ARGS_LEN + 1, GFP_KERNEL);
+	spec_orig = spec = kzalloc(MAX_VMPRESSURE_ARGS_LEN + 1, GFP_KERNEL);
 	if (!spec) {
 		ret = -ENOMEM;
 		goto out;
@@ -429,7 +429,7 @@ int vmpressure_register_event(struct mem_cgroup *memcg,
 	list_add(&ev->node, &vmpr->events);
 	mutex_unlock(&vmpr->events_lock);
 out:
-	kfree(spec);
+	kfree(spec_orig);
 	return ret;
 }
 
