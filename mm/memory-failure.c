@@ -611,7 +611,6 @@ static int me_unknown(struct page *p, unsigned long pfn)
  */
 static int me_pagecache_clean(struct page *p, unsigned long pfn)
 {
-	int err;
 	struct address_space *mapping;
 
 	delete_from_lru_cache(p);
@@ -758,8 +757,6 @@ static int me_huge_page(struct page *p, unsigned long pfn)
 	if (mapping) {
 		res = truncate_error_page(hpage, pfn, mapping);
 	} else {
-		int dissolve_ret;
-
 		unlock_page(hpage);
 		/*
 		 * migration entry prevents later access on error anonymous
