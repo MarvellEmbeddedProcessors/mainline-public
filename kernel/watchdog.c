@@ -114,6 +114,10 @@ int __read_mostly watchdog_suspended;
 /*
  * These functions can be overridden if an architecture implements its
  * own hardlockup detector.
+ *
+ * watchdog_nmi_enable/disable can be implemented to start and stop when
+ * softlockup watchdog threads start and stop. The arch must select the
+ * SOFTLOCKUP_DETECTOR Kconfig.
  */
 int __weak watchdog_nmi_enable(unsigned int cpu)
 {
@@ -123,6 +127,17 @@ void __weak watchdog_nmi_disable(unsigned int cpu)
 {
 }
 
+/*
+ * watchdog_nmi_reconfigure can be implemented to be notified after any
+ * watchdog configuration change. The arch hardlockup watchdog should
+ * respond to the following variables:
+ * - nmi_watchdog_enabled
+ * - watchdog_thresh
+ * - watchdog_cpumask
+ * - sysctl_hardlockup_all_cpu_backtrace
+ * - hardlockup_panic
+ * - watchdog_suspended
+ */
 void __weak watchdog_nmi_reconfigure(void)
 {
 }
