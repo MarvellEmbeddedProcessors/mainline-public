@@ -288,6 +288,12 @@ static int start_wd_on_cpu(unsigned int cpu)
 		return 0;
 	}
 
+	if (!(watchdog_enabled & NMI_WATCHDOG_ENABLED))
+		return 0;
+
+	if (watchdog_suspended)
+		return 0;
+
 	if (!cpumask_test_cpu(cpu, &watchdog_cpumask))
 		return 0;
 
@@ -336,12 +342,6 @@ void watchdog_nmi_reconfigure(void)
 
 	for_each_cpu(cpu, &wd_cpus_enabled)
 		stop_wd_on_cpu(cpu);
-
-	if (!(watchdog_enabled & NMI_WATCHDOG_ENABLED))
-		return;
-
-	if (watchdog_suspended)
-		return;
 
 	for_each_cpu_and(cpu, cpu_online_mask, &watchdog_cpumask)
 		start_wd_on_cpu(cpu);
