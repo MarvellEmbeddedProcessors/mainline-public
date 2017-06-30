@@ -937,13 +937,13 @@ start_over:
 			spin_unlock(&si->lock);
 			goto nextsi;
 		}
-		if (likely(cluster))
+		if (cluster)
 			n_ret = swap_alloc_cluster(si, swp_entries);
 		else
 			n_ret = scan_swap_map_slots(si, SWAP_HAS_CACHE,
 						    n_goal, swp_entries);
 		spin_unlock(&si->lock);
-		if (n_ret || unlikely(cluster))
+		if (n_ret || cluster)
 			goto check_out;
 		pr_debug("scan_swap_map of si %d failed to find offset\n",
 			si->type);

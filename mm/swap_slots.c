@@ -309,8 +309,9 @@ swp_entry_t get_swap_page(struct page *page)
 
 	entry.val = 0;
 
-	if (IS_ENABLED(CONFIG_THP_SWAP) && PageTransHuge(page)) {
-		get_swap_pages(1, true, &entry);
+	if (PageTransHuge(page)) {
+		if (IS_ENABLED(CONFIG_THP_SWAP))
+			get_swap_pages(1, true, &entry);
 		return entry;
 	}
 
