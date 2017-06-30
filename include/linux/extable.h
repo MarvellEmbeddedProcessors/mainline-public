@@ -8,7 +8,7 @@ struct module;
 struct exception_table_entry;
 
 const struct exception_table_entry *
-search_extable(const struct exception_table_entry *first,
+search_extable(const struct exception_table_entry *base,
 	       const size_t num,
 	       unsigned long value);
 void sort_extable(struct exception_table_entry *start,
