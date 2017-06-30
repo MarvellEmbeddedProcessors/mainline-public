@@ -1363,7 +1363,7 @@ static ssize_t proc_fail_nth_write(struct file *file, const char __user *buf,
 	int err;
 	unsigned int n;
 
-	err = kstrtoint_from_user(buf, count, 0, &n);
+	err = kstrtouint_from_user(buf, count, 0, &n);
 	if (err)
 		return err;
 
