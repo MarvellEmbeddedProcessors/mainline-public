@@ -596,18 +596,26 @@ static inline void mod_lruvec_state(struct lruvec *lruvec,
 static inline void __mod_lruvec_page_state(struct page *page,
 					   enum node_stat_item idx, int val)
 {
+	struct mem_cgroup *memcg;
 	struct lruvec *lruvec;
 
-	lruvec = mem_cgroup_lruvec(page_pgdat(page), page->mem_cgroup);
+	/* Special pages in the VM aren't charged, use root */
+	memcg = page->mem_cgroup ? : root_mem_cgroup;
+
+	lruvec = mem_cgroup_lruvec(page_pgdat(page), memcg);
 	__mod_lruvec_state(lruvec, idx, val);
 }
 
 static inline void mod_lruvec_page_state(struct page *page,
 					 enum node_stat_item idx, int val)
 {
+	struct mem_cgroup *memcg;
 	struct lruvec *lruvec;
 
-	lruvec = mem_cgroup_lruvec(page_pgdat(page), page->mem_cgroup);
+	/* Special pages in the VM aren't charged, use root */
+	memcg = page->mem_cgroup ? : root_mem_cgroup;
+
+	lruvec = mem_cgroup_lruvec(page_pgdat(page), memcg);
 	mod_lruvec_state(lruvec, idx, val);
 }
 
