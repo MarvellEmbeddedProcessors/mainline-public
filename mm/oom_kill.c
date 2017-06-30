@@ -879,7 +879,7 @@ static void oom_kill_process(struct oom_control *oc, const char *message)
 
 	/* Raise event before sending signal: reaper must see this */
 	count_vm_event(OOM_KILL);
-	mem_cgroup_count_vm_event(mm, OOM_KILL);
+	count_memcg_event_mm(mm, OOM_KILL);
 
 	/*
 	 * We should send SIGKILL before setting TIF_MEMDIE in order to prevent
