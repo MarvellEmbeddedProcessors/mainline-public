@@ -1081,7 +1081,6 @@ void move_pfn_range_to_zone(struct zone *zone,
 	struct pglist_data *pgdat = zone->zone_pgdat;
 	int nid = pgdat->node_id;
 	unsigned long flags;
-	unsigned long i;
 
 	if (zone_is_empty(zone))
 		init_currently_empty_zone(zone, start_pfn, nr_pages);
