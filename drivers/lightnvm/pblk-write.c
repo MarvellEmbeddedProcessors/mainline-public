@@ -190,7 +190,7 @@ static void pblk_end_io_write_meta(struct nvm_rq *rqd)
 
 	if (rqd->error) {
 		pblk_log_write_err(pblk, rqd);
-		pr_err("pblk: metadata I/O failed\n");
+		pr_err("pblk: metadata I/O failed. Line %d\n", line->id);
 	}
 #ifdef CONFIG_NVM_DEBUG
 	else
@@ -389,7 +389,8 @@ int pblk_submit_meta_io(struct pblk *pblk, struct pblk_line *meta_line)
 	rq_len = rq_ppas * geo->sec_size;
 	data = ((void *)emeta->buf) + emeta->mem;
 
-	bio = pblk_bio_map_addr(pblk, data, rq_ppas, rq_len, GFP_KERNEL);
+	bio = pblk_bio_map_addr(pblk, data, rq_ppas, rq_len,
+					l_mg->emeta_alloc_type, GFP_KERNEL);
 	if (IS_ERR(bio)) {
 		ret = PTR_ERR(bio);
 		goto fail_free_rqd;

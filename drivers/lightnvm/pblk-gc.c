@@ -20,7 +20,7 @@
 
 static void pblk_gc_free_gc_rq(struct pblk_gc_rq *gc_rq)
 {
-	kfree(gc_rq->data);
+	vfree(gc_rq->data);
 	kfree(gc_rq);
 }
 
@@ -72,7 +72,7 @@ static int pblk_gc_move_valid_secs(struct pblk *pblk, struct pblk_gc_rq *gc_rq)
 	unsigned int secs_to_gc;
 	int ret = 0;
 
-	data = kmalloc(gc_rq->nr_secs * geo->sec_size, GFP_KERNEL);
+	data = vmalloc(gc_rq->nr_secs * geo->sec_size);
 	if (!data) {
 		ret = -ENOMEM;
 		goto out;
@@ -110,7 +110,7 @@ retry:
 free_rq:
 	kfree(gc_rq);
 free_data:
-	kfree(data);
+	vfree(data);
 out:
 	kref_put(&line->ref, pblk_line_put);
 	return ret;
@@ -314,10 +314,13 @@ static struct pblk_line *pblk_gc_get_victim_line(struct pblk *pblk,
 						 struct list_head *group_list)
 {
 	struct pblk_line *line, *victim;
+	int line_vsc, victim_vsc;
 
 	victim = list_first_entry(group_list, struct pblk_line, list);
 	list_for_each_entry(line, group_list, list) {
-		if (*line->vsc < *victim->vsc)
+		line_vsc = le32_to_cpu(*line->vsc);
+		victim_vsc = le32_to_cpu(*victim->vsc);
+		if (line_vsc < victim_vsc)
 			victim = line;
 	}
 

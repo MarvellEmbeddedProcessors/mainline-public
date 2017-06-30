@@ -34,8 +34,7 @@ static int pblk_read_from_cache(struct pblk *pblk, struct bio *bio,
 	BUG_ON(!pblk_addr_in_cache(ppa));
 #endif
 
-	return pblk_rb_copy_to_bio(&pblk->rwb, bio, lba,
-					pblk_addr_to_cacheline(ppa), bio_iter);
+	return pblk_rb_copy_to_bio(&pblk->rwb, bio, lba, ppa, bio_iter);
 }
 
 static void pblk_read_ppalist_rq(struct pblk *pblk, struct nvm_rq *rqd,
@@ -462,7 +461,6 @@ int pblk_submit_read_gc(struct pblk *pblk, u64 *lba_list, void *data,
 {
 	struct nvm_tgt_dev *dev = pblk->dev;
 	struct nvm_geo *geo = &dev->geo;
-	struct request_queue *q = dev->q;
 	struct bio *bio;
 	struct nvm_rq rqd;
 	int ret, data_len;
@@ -491,7 +489,8 @@ int pblk_submit_read_gc(struct pblk *pblk, u64 *lba_list, void *data,
 		goto out;
 
 	data_len = (*secs_to_gc) * geo->sec_size;
-	bio = bio_map_kern(q, data, data_len, GFP_KERNEL);
+	bio = pblk_bio_map_addr(pblk, data, *secs_to_gc, data_len,
+						PBLK_KMALLOC_META, GFP_KERNEL);
 	if (IS_ERR(bio)) {
 		pr_err("pblk: could not allocate GC bio (%lu)\n", PTR_ERR(bio));
 		goto err_free_dma;

@@ -111,6 +111,13 @@ struct pblk_g_ctx {
 	void *private;
 };
 
+/* Pad context */
+struct pblk_pad_rq {
+	struct pblk *pblk;
+	struct completion wait;
+	struct kref ref;
+};
+
 /* Recovery context */
 struct pblk_rec_ctx {
 	struct pblk *pblk;
@@ -663,7 +670,7 @@ unsigned int pblk_rb_read_to_bio_list(struct pblk_rb *rb, struct bio *bio,
 				      struct list_head *list,
 				      unsigned int max);
 int pblk_rb_copy_to_bio(struct pblk_rb *rb, struct bio *bio, sector_t lba,
-			u64 pos, int bio_iter);
+			struct ppa_addr ppa, int bio_iter);
 unsigned int pblk_rb_read_commit(struct pblk_rb *rb, unsigned int entries);
 
 unsigned int pblk_rb_sync_init(struct pblk_rb *rb, unsigned long *flags);
@@ -674,6 +681,7 @@ void pblk_rb_sync_end(struct pblk_rb *rb, unsigned long *flags);
 unsigned int pblk_rb_sync_point_count(struct pblk_rb *rb);
 
 unsigned int pblk_rb_read_count(struct pblk_rb *rb);
+unsigned int pblk_rb_sync_count(struct pblk_rb *rb);
 unsigned int pblk_rb_wrap_pos(struct pblk_rb *rb, unsigned int pos);
 
 int pblk_rb_tear_down_check(struct pblk_rb *rb);
@@ -698,7 +706,7 @@ int pblk_submit_io(struct pblk *pblk, struct nvm_rq *rqd);
 int pblk_submit_meta_io(struct pblk *pblk, struct pblk_line *meta_line);
 struct bio *pblk_bio_map_addr(struct pblk *pblk, void *data,
 			      unsigned int nr_secs, unsigned int len,
-			      gfp_t gfp_mask);
+			      int alloc_type, gfp_t gfp_mask);
 struct pblk_line *pblk_line_get(struct pblk *pblk);
 struct pblk_line *pblk_line_get_first_data(struct pblk *pblk);
 void pblk_line_replace_data(struct pblk *pblk);
@@ -805,7 +813,7 @@ int pblk_recov_setup_rq(struct pblk *pblk, struct pblk_c_ctx *c_ctx,
  * pblk gc
  */
 #define PBLK_GC_MAX_READERS 8	/* Max number of outstanding GC reader jobs */
-#define PBLK_GC_W_QD 1024	/* Queue depth for inflight GC write I/Os */
+#define PBLK_GC_W_QD 128	/* Queue depth for inflight GC write I/Os */
 #define PBLK_GC_L_QD 4		/* Queue depth for inflight GC lines */
 #define PBLK_GC_RSV_LINE 1	/* Reserved lines for GC */
 
@@ -1027,6 +1035,14 @@ static inline int pblk_ppa_empty(struct ppa_addr ppa_addr)
 static inline void pblk_ppa_set_empty(struct ppa_addr *ppa_addr)
 {
 	ppa_addr->ppa = ADDR_EMPTY;
+}
+
+static inline bool pblk_ppa_comp(struct ppa_addr lppa, struct ppa_addr rppa)
+{
+	if (lppa.ppa == rppa.ppa)
+		return true;
+
+	return false;
 }
 
 static inline int pblk_addr_in_cache(struct ppa_addr ppa)
