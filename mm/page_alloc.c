@@ -7221,7 +7221,7 @@ void *__init alloc_large_system_hash(const char *tablename,
 		if (PAGE_SHIFT < 20)
 			numentries = round_up(numentries, (1<<20)/PAGE_SIZE);
 
-		if (flags & HASH_ADAPT) {
+		if (!high_limit) {
 			unsigned long adapt;
 
 			for (adapt = ADAPT_SCALE_NPAGES; adapt < numentries;
