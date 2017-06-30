@@ -1272,7 +1272,7 @@ register_fail:
 
 error:
 	/* rollback pgdat allocation and others */
-	if (new_pgdat)
+	if (new_pgdat && pgdat)
 		rollback_node_hotadd(nid, pgdat);
 	memblock_remove(start, size);
 
