@@ -1223,7 +1223,8 @@ static void pagetypeinfo_showblockcount_print(struct seq_file *m,
 	for (pfn = start_pfn; pfn < end_pfn; pfn += pageblock_nr_pages) {
 		struct page *page;
 
-		if (!pfn_to_online_page(pfn))
+		page = pfn_to_online_page(pfn);
+		if (!page)
 			continue;
 
 		/* Watch for unexpected holes punched in the memmap */
