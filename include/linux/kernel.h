@@ -852,10 +852,11 @@ static inline void ftrace_dump(enum ftrace_dump_mode oops_dump_mode) { }
  *
  */
 #define container_of(ptr, type, member) ({				\
+	void *__mptr = (void *)(ptr);					\
 	BUILD_BUG_ON_MSG(!__same_type(*(ptr), ((type *)0)->member) &&	\
 			 !__same_type(*(ptr), void),			\
 			 "pointer type mismatch in container_of()");	\
-	((type *)((char *)(ptr) - offsetof(type, member))); })
+	((type *)(__mptr - offsetof(type, member))); })
 
 /* Rebuild everything on CONFIG_FTRACE_MCOUNT_RECORD */
 #ifdef CONFIG_FTRACE_MCOUNT_RECORD
