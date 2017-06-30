@@ -596,27 +596,27 @@ static inline void mod_lruvec_state(struct lruvec *lruvec,
 static inline void __mod_lruvec_page_state(struct page *page,
 					   enum node_stat_item idx, int val)
 {
-	struct mem_cgroup *memcg;
-	struct lruvec *lruvec;
+	struct mem_cgroup_per_node *pn;
 
-	/* Special pages in the VM aren't charged, use root */
-	memcg = page->mem_cgroup ? : root_mem_cgroup;
-
-	lruvec = mem_cgroup_lruvec(page_pgdat(page), memcg);
-	__mod_lruvec_state(lruvec, idx, val);
+	__mod_node_page_state(page_pgdat(page), idx, val);
+	if (mem_cgroup_disabled() || !page->mem_cgroup)
+		return;
+	__mod_memcg_state(page->mem_cgroup, idx, val);
+	pn = page->mem_cgroup->nodeinfo[page_to_nid(page)];
+	__this_cpu_add(pn->lruvec_stat->count[idx], val);
 }
 
 static inline void mod_lruvec_page_state(struct page *page,
 					 enum node_stat_item idx, int val)
 {
-	struct mem_cgroup *memcg;
-	struct lruvec *lruvec;
+	struct mem_cgroup_per_node *pn;
 
-	/* Special pages in the VM aren't charged, use root */
-	memcg = page->mem_cgroup ? : root_mem_cgroup;
-
-	lruvec = mem_cgroup_lruvec(page_pgdat(page), memcg);
-	mod_lruvec_state(lruvec, idx, val);
+	mod_node_page_state(page_pgdat(page), idx, val);
+	if (mem_cgroup_disabled() || !page->mem_cgroup)
+		return;
+	mod_memcg_state(page->mem_cgroup, idx, val);
+	pn = page->mem_cgroup->nodeinfo[page_to_nid(page)];
+	this_cpu_add(pn->lruvec_stat->count[idx], val);
 }
 
 unsigned long mem_cgroup_soft_limit_reclaim(pg_data_t *pgdat, int order,
