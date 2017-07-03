@@ -1288,6 +1288,108 @@ smb2_query_symlink(const unsigned int xid, struct cifs_tcon *tcon,
 	return rc;
 }
 
+#ifdef CONFIG_CIFS_ACL
+static struct cifs_ntsd *
+get_smb2_acl_by_fid(struct cifs_sb_info *cifs_sb,
+		const struct cifs_fid *cifsfid, u32 *pacllen)
+{
+	struct cifs_ntsd *pntsd = NULL;
+	unsigned int xid;
+	int rc = -EOPNOTSUPP;
+	struct tcon_link *tlink = cifs_sb_tlink(cifs_sb);
+
+	if (IS_ERR(tlink))
+		return ERR_CAST(tlink);
+
+	xid = get_xid();
+	cifs_dbg(FYI, "trying to get acl\n");
+
+	rc = SMB2_query_acl(xid, tlink_tcon(tlink), cifsfid->persistent_fid,
+			    cifsfid->volatile_fid, (void **)&pntsd, pacllen);
+	free_xid(xid);
+
+	cifs_put_tlink(tlink);
+
+	cifs_dbg(FYI, "%s: rc = %d ACL len %d\n", __func__, rc, *pacllen);
+	if (rc)
+		return ERR_PTR(rc);
+	return pntsd;
+
+}
+
+static struct cifs_ntsd *
+get_smb2_acl_by_path(struct cifs_sb_info *cifs_sb,
+		const char *path, u32 *pacllen)
+{
+	struct cifs_ntsd *pntsd = NULL;
+	u8 oplock = SMB2_OPLOCK_LEVEL_NONE;
+	unsigned int xid;
+	int rc;
+	struct cifs_tcon *tcon;
+	struct tcon_link *tlink = cifs_sb_tlink(cifs_sb);
+	struct cifs_fid fid;
+	struct cifs_open_parms oparms;
+	__le16 *utf16_path;
+
+	cifs_dbg(FYI, "get smb3 acl for path %s\n", path);
+	if (IS_ERR(tlink))
+		return ERR_CAST(tlink);
+
+	tcon = tlink_tcon(tlink);
+	xid = get_xid();
+
+	if (backup_cred(cifs_sb))
+		oparms.create_options |= CREATE_OPEN_BACKUP_INTENT;
+	else
+		oparms.create_options = 0;
+
+	utf16_path = cifs_convert_path_to_utf16(path, cifs_sb);
+	if (!utf16_path)
+		return ERR_PTR(-ENOMEM);
+
+	oparms.tcon = tcon;
+	oparms.desired_access = READ_CONTROL;
+	oparms.disposition = FILE_OPEN;
+	oparms.fid = &fid;
+	oparms.reconnect = false;
+
+	rc = SMB2_open(xid, &oparms, utf16_path, &oplock, NULL, NULL);
+	kfree(utf16_path);
+	if (!rc) {
+		rc = SMB2_query_acl(xid, tlink_tcon(tlink), fid.persistent_fid,
+			    fid.volatile_fid, (void **)&pntsd, pacllen);
+		SMB2_close(xid, tcon, fid.persistent_fid, fid.volatile_fid);
+	}
+
+	cifs_put_tlink(tlink);
+	free_xid(xid);
+
+	cifs_dbg(FYI, "%s: rc = %d ACL len %d\n", __func__, rc, *pacllen);
+	if (rc)
+		return ERR_PTR(rc);
+	return pntsd;
+}
+
+/* Retrieve an ACL from the server */
+static struct cifs_ntsd *
+get_smb2_acl(struct cifs_sb_info *cifs_sb,
+				      struct inode *inode, const char *path,
+				      u32 *pacllen)
+{
+	struct cifs_ntsd *pntsd = NULL;
+	struct cifsFileInfo *open_file = NULL;
+
+	if (inode)
+		open_file = find_readable_file(CIFS_I(inode), true);
+	if (!open_file)
+		return get_smb2_acl_by_path(cifs_sb, path, pacllen);
+
+	pntsd = get_smb2_acl_by_fid(cifs_sb, &open_file->fid, pacllen);
+	cifsFileInfo_put(open_file);
+	return pntsd;
+}
+#endif
+
 static long smb3_zero_range(struct file *file, struct cifs_tcon *tcon,
 			    loff_t offset, loff_t len, bool keep_size)
 {
@@ -2393,6 +2495,11 @@ struct smb_version_operations smb20_operations = {
 	.dir_needs_close = smb2_dir_needs_close,
 	.get_dfs_refer = smb2_get_dfs_refer,
 	.select_sectype = smb2_select_sectype,
+#ifdef CONFIG_CIFS_ACL
+	.get_acl = get_smb2_acl,
+	.get_acl_by_fid = get_smb2_acl_by_fid,
+/*	.set_acl = set_smb3_acl, */
+#endif /* CIFS_ACL */
 };
 
 struct smb_version_operations smb21_operations = {
@@ -2477,8 +2584,14 @@ struct smb_version_operations smb21_operations = {
 	.enum_snapshots = smb3_enum_snapshots,
 	.get_dfs_refer = smb2_get_dfs_refer,
 	.select_sectype = smb2_select_sectype,
+#ifdef CONFIG_CIFS_ACL
+	.get_acl = get_smb2_acl,
+	.get_acl_by_fid = get_smb2_acl_by_fid,
+/*	.set_acl = set_smb3_acl, */
+#endif /* CIFS_ACL */
 };
 
+/* This is used for 3.0 and 3.02 and 3.11 dialects */
 struct smb_version_operations smb30_operations = {
 	.compare_fids = smb2_compare_fids,
 	.setup_request = smb2_setup_request,
@@ -2571,103 +2684,13 @@ struct smb_version_operations smb30_operations = {
 	.receive_transform = smb3_receive_transform,
 	.get_dfs_refer = smb2_get_dfs_refer,
 	.select_sectype = smb2_select_sectype,
+#ifdef CONFIG_CIFS_ACL
+	.get_acl = get_smb2_acl,
+	.get_acl_by_fid = get_smb2_acl_by_fid,
+/*	.set_acl = set_smb3_acl, */
+#endif /* CIFS_ACL */
 };
 
-#ifdef CONFIG_CIFS_SMB311
-struct smb_version_operations smb311_operations = {
-	.compare_fids = smb2_compare_fids,
-	.setup_request = smb2_setup_request,
-	.setup_async_request = smb2_setup_async_request,
-	.check_receive = smb2_check_receive,
-	.add_credits = smb2_add_credits,
-	.set_credits = smb2_set_credits,
-	.get_credits_field = smb2_get_credits_field,
-	.get_credits = smb2_get_credits,
-	.wait_mtu_credits = smb2_wait_mtu_credits,
-	.get_next_mid = smb2_get_next_mid,
-	.read_data_offset = smb2_read_data_offset,
-	.read_data_length = smb2_read_data_length,
-	.map_error = map_smb2_to_linux_error,
-	.find_mid = smb2_find_mid,
-	.check_message = smb2_check_message,
-	.dump_detail = smb2_dump_detail,
-	.clear_stats = smb2_clear_stats,
-	.print_stats = smb2_print_stats,
-	.dump_share_caps = smb2_dump_share_caps,
-	.is_oplock_break = smb2_is_valid_oplock_break,
-	.handle_cancelled_mid = smb2_handle_cancelled_mid,
-	.downgrade_oplock = smb2_downgrade_oplock,
-	.need_neg = smb2_need_neg,
-	.negotiate = smb2_negotiate,
-	.negotiate_wsize = smb2_negotiate_wsize,
-	.negotiate_rsize = smb2_negotiate_rsize,
-	.sess_setup = SMB2_sess_setup,
-	.logoff = SMB2_logoff,
-	.tree_connect = SMB2_tcon,
-	.tree_disconnect = SMB2_tdis,
-	.qfs_tcon = smb3_qfs_tcon,
-	.is_path_accessible = smb2_is_path_accessible,
-	.can_echo = smb2_can_echo,
-	.echo = SMB2_echo,
-	.query_path_info = smb2_query_path_info,
-	.get_srv_inum = smb2_get_srv_inum,
-	.query_file_info = smb2_query_file_info,
-	.set_path_size = smb2_set_path_size,
-	.set_file_size = smb2_set_file_size,
-	.set_file_info = smb2_set_file_info,
-	.set_compression = smb2_set_compression,
-	.mkdir = smb2_mkdir,
-	.mkdir_setinfo = smb2_mkdir_setinfo,
-	.rmdir = smb2_rmdir,
-	.unlink = smb2_unlink,
-	.rename = smb2_rename_path,
-	.create_hardlink = smb2_create_hardlink,
-	.query_symlink = smb2_query_symlink,
-	.query_mf_symlink = smb3_query_mf_symlink,
-	.create_mf_symlink = smb3_create_mf_symlink,
-	.open = smb2_open_file,
-	.set_fid = smb2_set_fid,
-	.close = smb2_close_file,
-	.flush = smb2_flush_file,
-	.async_readv = smb2_async_readv,
-	.async_writev = smb2_async_writev,
-	.sync_read = smb2_sync_read,
-	.sync_write = smb2_sync_write,
-	.query_dir_first = smb2_query_dir_first,
-	.query_dir_next = smb2_query_dir_next,
-	.close_dir = smb2_close_dir,
-	.calc_smb_size = smb2_calc_size,
-	.is_status_pending = smb2_is_status_pending,
-	.oplock_response = smb2_oplock_response,
-	.queryfs = smb2_queryfs,
-	.mand_lock = smb2_mand_lock,
-	.mand_unlock_range = smb2_unlock_range,
-	.push_mand_locks = smb2_push_mandatory_locks,
-	.get_lease_key = smb2_get_lease_key,
-	.set_lease_key = smb2_set_lease_key,
-	.new_lease_key = smb2_new_lease_key,
-	.generate_signingkey = generate_smb311signingkey,
-	.calc_signature = smb3_calc_signature,
-	.set_integrity  = smb3_set_integrity,
-	.is_read_op = smb21_is_read_op,
-	.set_oplock_level = smb3_set_oplock_level,
-	.create_lease_buf = smb3_create_lease_buf,
-	.parse_lease_buf = smb3_parse_lease_buf,
-	.copychunk_range = smb2_copychunk_range,
-	.duplicate_extents = smb2_duplicate_extents,
-/*	.validate_negotiate = smb3_validate_negotiate, */ /* not used in 3.11 */
-	.wp_retry_size = smb2_wp_retry_size,
-	.dir_needs_close = smb2_dir_needs_close,
-	.fallocate = smb3_fallocate,
-	.enum_snapshots = smb3_enum_snapshots,
-	.init_transform_rq = smb3_init_transform_rq,
-	.free_transform_rq = smb3_free_transform_rq,
-	.is_transform_hdr = smb3_is_transform_hdr,
-	.receive_transform = smb3_receive_transform,
-	.get_dfs_refer = smb2_get_dfs_refer,
-	.select_sectype = smb2_select_sectype,
-};
-#endif /* CIFS_SMB311 */
 
 struct smb_version_values smb20_values = {
 	.version_string = SMB20_VERSION_STRING,
@@ -2753,7 +2776,7 @@ struct smb_version_values smb302_values = {
 struct smb_version_values smb311_values = {
 	.version_string = SMB311_VERSION_STRING,
 	.protocol_id = SMB311_PROT_ID,
-	.req_capabilities = SMB2_GLOBAL_CAP_DFS | SMB2_GLOBAL_CAP_LEASING | SMB2_GLOBAL_CAP_LARGE_MTU | SMB2_GLOBAL_CAP_PERSISTENT_HANDLES,
+	.req_capabilities = SMB2_GLOBAL_CAP_DFS | SMB2_GLOBAL_CAP_LEASING | SMB2_GLOBAL_CAP_LARGE_MTU | SMB2_GLOBAL_CAP_PERSISTENT_HANDLES | SMB2_GLOBAL_CAP_ENCRYPTION,
 	.large_lock_type = 0,
 	.exclusive_lock_type = SMB2_LOCKFLAG_EXCLUSIVE_LOCK,
 	.shared_lock_type = SMB2_LOCKFLAG_SHARED_LOCK,
@@ -2770,3 +2793,22 @@ struct smb_version_values smb311_values = {
 	.create_lease_size = sizeof(struct create_lease_v2),
 };
 #endif /* SMB311 */
+struct smb_version_values smb3any_values = {
+	.version_string = SMB3ANY_VERSION_STRING,
+	.protocol_id = SMB302_PROT_ID, /* doesn't matter, send protocol array */
+	.req_capabilities = SMB2_GLOBAL_CAP_DFS | SMB2_GLOBAL_CAP_LEASING | SMB2_GLOBAL_CAP_LARGE_MTU | SMB2_GLOBAL_CAP_PERSISTENT_HANDLES | SMB2_GLOBAL_CAP_ENCRYPTION,
+	.large_lock_type = 0,
+	.exclusive_lock_type = SMB2_LOCKFLAG_EXCLUSIVE_LOCK,
+	.shared_lock_type = SMB2_LOCKFLAG_SHARED_LOCK,
+	.unlock_lock_type = SMB2_LOCKFLAG_UNLOCK,
+	.header_size = sizeof(struct smb2_hdr),
+	.max_header_size = MAX_SMB2_HDR_SIZE,
+	.read_rsp_size = sizeof(struct smb2_read_rsp) - 1,
+	.lock_cmd = SMB2_LOCK,
+	.cap_unix = 0,
+	.cap_nt_find = SMB2_NT_FIND,
+	.cap_large_files = SMB2_LARGE_FILES,
+	.signing_enabled = SMB2_NEGOTIATE_SIGNING_ENABLED | SMB2_NEGOTIATE_SIGNING_REQUIRED,
+	.signing_required = SMB2_NEGOTIATE_SIGNING_REQUIRED,
+	.create_lease_size = sizeof(struct create_lease_v2),
+};
