@@ -2197,41 +2197,26 @@ static sector_t f2fs_bmap(struct address_space *mapping, sector_t block)
 int f2fs_migrate_page(struct address_space *mapping,
 		struct page *newpage, struct page *page, enum migrate_mode mode)
 {
-	int rc, extra_count;
-	struct f2fs_inode_info *fi = F2FS_I(mapping->host);
-	bool atomic_written = IS_ATOMIC_WRITTEN_PAGE(page);
+	int rc;
 
-	BUG_ON(PageWriteback(page));
-
-	/* migrating an atomic written page is safe with the inmem_lock hold */
-	if (atomic_written && !mutex_trylock(&fi->inmem_lock))
+	/*
+	 * We'd better return EAGAIN for atomic pages, which will be committed
+	 * sooner or later. Don't botter transactions with inmem_lock.
+	 */
+	if (IS_ATOMIC_WRITTEN_PAGE(page))
 		return -EAGAIN;
+
+	BUG_ON(PageWriteback(page));	/* Writeback must be complete */
 
 	/*
 	 * A reference is expected if PagePrivate set when move mapping,
 	 * however F2FS breaks this for maintaining dirty page counts when
 	 * truncating pages. So here adjusting the 'extra_count' make it work.
 	 */
-	extra_count = (atomic_written ? 1 : 0) - page_has_private(page);
 	rc = migrate_page_move_mapping(mapping, newpage,
-				page, NULL, mode, extra_count);
-	if (rc != MIGRATEPAGE_SUCCESS) {
-		if (atomic_written)
-			mutex_unlock(&fi->inmem_lock);
+			page, NULL, mode, (page_has_private(page) ? -1 : 0));
+	if (rc != MIGRATEPAGE_SUCCESS)
 		return rc;
-	}
-
-	if (atomic_written) {
-		struct inmem_pages *cur;
-		list_for_each_entry(cur, &fi->inmem_pages, list)
-			if (cur->page == page) {
-				cur->page = newpage;
-				break;
-			}
-		mutex_unlock(&fi->inmem_lock);
-		put_page(page);
-		get_page(newpage);
-	}
 
 	if (PagePrivate(page))
 		SetPagePrivate(newpage);
