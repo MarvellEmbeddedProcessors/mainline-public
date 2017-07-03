@@ -294,7 +294,6 @@ void ext4_free_inode(handle_t *handle, struct inode *inode)
 	 * as writing the quota to disk may need the lock as well.
 	 */
 	dquot_initialize(inode);
-	ext4_xattr_delete_inode(handle, inode);
 	dquot_free_inode(inode);
 	dquot_drop(inode);
 
@@ -743,8 +742,9 @@ out:
  */
 struct inode *__ext4_new_inode(handle_t *handle, struct inode *dir,
 			       umode_t mode, const struct qstr *qstr,
-			       __u32 goal, uid_t *owner, int handle_type,
-			       unsigned int line_no, int nblocks)
+			       __u32 goal, uid_t *owner, __u32 i_flags,
+			       int handle_type, unsigned int line_no,
+			       int nblocks)
 {
 	struct super_block *sb;
 	struct buffer_head *inode_bitmap_bh = NULL;
@@ -1053,6 +1053,7 @@ got:
 	/* Don't inherit extent flag from directory, amongst others. */
 	ei->i_flags =
 		ext4_mask_flags(mode, EXT4_I(dir)->i_flags & EXT4_FL_INHERITED);
+	ei->i_flags |= i_flags;
 	ei->i_file_acl = 0;
 	ei->i_dtime = 0;
 	ei->i_block_group = group;
@@ -1109,9 +1110,11 @@ got:
 			goto fail_free_drop;
 	}
 
-	err = ext4_init_acl(handle, inode, dir);
-	if (err)
-		goto fail_free_drop;
+	if (!(ei->i_flags & EXT4_EA_INODE_FL)) {
+		err = ext4_init_acl(handle, inode, dir);
+		if (err)
+			goto fail_free_drop;
+	}
 
 	err = ext4_init_security(handle, inode, dir, qstr);
 	if (err)
