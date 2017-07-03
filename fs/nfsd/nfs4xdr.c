@@ -4538,14 +4538,13 @@ nfsd4_encode_replay(struct xdr_stream *xdr, struct nfsd4_op *op)
 }
 
 int
-nfs4svc_encode_voidres(struct svc_rqst *rqstp, __be32 *p, void *dummy)
+nfs4svc_encode_voidres(struct svc_rqst *rqstp, __be32 *p)
 {
         return xdr_ressize_check(rqstp, p);
 }
 
-int nfsd4_release_compoundargs(void *rq, __be32 *p, void *resp)
+void nfsd4_release_compoundargs(struct svc_rqst *rqstp)
 {
-	struct svc_rqst *rqstp = rq;
 	struct nfsd4_compoundargs *args = rqstp->rq_argp;
 
 	if (args->ops != args->iops) {
@@ -4559,12 +4558,13 @@ int nfsd4_release_compoundargs(void *rq, __be32 *p, void *resp)
 		args->to_free = tb->next;
 		kfree(tb);
 	}
-	return 1;
 }
 
 int
-nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, __be32 *p, struct nfsd4_compoundargs *args)
+nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, __be32 *p)
 {
+	struct nfsd4_compoundargs *args = rqstp->rq_argp;
+
 	if (rqstp->rq_arg.head[0].iov_len % 4) {
 		/* client is nuts */
 		dprintk("%s: compound not properly padded! (peeraddr=%pISc xid=0x%x)",
@@ -4584,11 +4584,12 @@ nfs4svc_decode_compoundargs(struct svc_rqst *rqstp, __be32 *p, struct nfsd4_comp
 }
 
 int
-nfs4svc_encode_compoundres(struct svc_rqst *rqstp, __be32 *p, struct nfsd4_compoundres *resp)
+nfs4svc_encode_compoundres(struct svc_rqst *rqstp, __be32 *p)
 {
 	/*
 	 * All that remains is to write the tag and operation count...
 	 */
+	struct nfsd4_compoundres *resp = rqstp->rq_resp;
 	struct xdr_buf *buf = resp->xdr.buf;
 
 	WARN_ON_ONCE(buf->len != buf->head[0].iov_len + buf->page_len +
