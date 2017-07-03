@@ -19,6 +19,8 @@
 #include <asm/mmu.h>
 #include <asm/firmware.h>
 #include <asm/powernv.h>
+#include <asm/sections.h>
+#include <asm/trace.h>
 
 #include <trace/events/thp.h>
 
@@ -121,7 +123,8 @@ static inline void __meminit print_mapping(unsigned long start,
 static int __meminit create_physical_mapping(unsigned long start,
 					     unsigned long end)
 {
-	unsigned long addr, mapping_size = 0;
+	unsigned long vaddr, addr, mapping_size = 0;
+	pgprot_t prot;
 
 	start = _ALIGN_UP(start, PAGE_SIZE);
 	for (addr = start; addr < end; addr += mapping_size) {
@@ -145,8 +148,14 @@ static int __meminit create_physical_mapping(unsigned long start,
 			start = addr;
 		}
 
-		rc = radix__map_kernel_page((unsigned long)__va(addr), addr,
-					    PAGE_KERNEL_X, mapping_size);
+		vaddr = (unsigned long)__va(addr);
+
+		if (overlaps_kernel_text(vaddr, vaddr + mapping_size))
+			prot = PAGE_KERNEL_X;
+		else
+			prot = PAGE_KERNEL;
+
+		rc = radix__map_kernel_page(vaddr, addr, prot, mapping_size);
 		if (rc)
 			return rc;
 	}
@@ -190,6 +199,7 @@ static void __init radix_init_pgtable(void)
 	asm volatile(PPC_TLBIE_5(%0,%1,2,1,1) : :
 		     "r" (TLBIEL_INVAL_SET_LPID), "r" (0));
 	asm volatile("eieio; tlbsync; ptesync" : : : "memory");
+	trace_tlbie(0, 0, TLBIEL_INVAL_SET_LPID, 0, 2, 1, 1);
 }
 
 static void __init radix_init_partition_table(void)
@@ -316,6 +326,9 @@ static void update_hid_for_radix(void)
 	asm volatile(PPC_TLBIE_5(%0, %4, %3, %2, %1)
 		     : : "r"(rb), "i"(1), "i"(1), "i"(2), "r"(0) : "memory");
 	asm volatile("eieio; tlbsync; ptesync; isync; slbia": : :"memory");
+	trace_tlbie(0, 0, rb, 0, 2, 0, 1);
+	trace_tlbie(0, 0, rb, 0, 2, 1, 1);
+
 	/*
 	 * now switch the HID
 	 */
@@ -683,7 +696,7 @@ unsigned long radix__pmd_hugepage_update(struct mm_struct *mm, unsigned long add
 	unsigned long old;
 
 #ifdef CONFIG_DEBUG_VM
-	WARN_ON(!radix__pmd_trans_huge(*pmdp));
+	WARN_ON(!radix__pmd_trans_huge(*pmdp) && !pmd_devmap(*pmdp));
 	assert_spin_locked(&mm->page_table_lock);
 #endif
 
@@ -701,6 +714,7 @@ pmd_t radix__pmdp_collapse_flush(struct vm_area_struct *vma, unsigned long addre
 
 	VM_BUG_ON(address & ~HPAGE_PMD_MASK);
 	VM_BUG_ON(radix__pmd_trans_huge(*pmdp));
+	VM_BUG_ON(pmd_devmap(*pmdp));
 	/*
 	 * khugepaged calls this for normal pmd
 	 */

@@ -210,27 +210,17 @@ system_call:			/* label this so stack traces look sane */
 	andi.	r0,r9,(_TIF_SYSCALL_DOTRACE|_TIF_SINGLESTEP|_TIF_USER_WORK_MASK|_TIF_PERSYSCALL_MASK)
 	bne-	syscall_exit_work
 
-	andi.	r0,r8,MSR_FP
-	beq 2f
+	/* If MSR_FP and MSR_VEC are set in user msr, then no need to restore */
+	li	r7,MSR_FP
 #ifdef CONFIG_ALTIVEC
-	andis.	r0,r8,MSR_VEC@h
-	bne	3f
+	oris	r7,r7,MSR_VEC@h
 #endif
-2:	addi    r3,r1,STACK_FRAME_OVERHEAD
-#ifdef CONFIG_PPC_BOOK3S
-	li	r10,MSR_RI
-	mtmsrd	r10,1		/* Restore RI */
-#endif
-	bl	restore_math
-#ifdef CONFIG_PPC_BOOK3S
-	li	r11,0
-	mtmsrd	r11,1
-#endif
-	ld	r8,_MSR(r1)
-	ld	r3,RESULT(r1)
-	li	r11,-MAX_ERRNO
+	and	r0,r8,r7
+	cmpd	r0,r7
+	bne	syscall_restore_math
+.Lsyscall_restore_math_cont:
 
-3:	cmpld	r3,r11
+	cmpld	r3,r11
 	ld	r5,_CCR(r1)
 	bge-	syscall_error
 .Lsyscall_error_cont:
@@ -263,7 +253,41 @@ syscall_error:
 	neg	r3,r3
 	std	r5,_CCR(r1)
 	b	.Lsyscall_error_cont
-	
+
+syscall_restore_math:
+	/*
+	 * Some initial tests from restore_math to avoid the heavyweight
+	 * C code entry and MSR manipulations.
+	 */
+	LOAD_REG_IMMEDIATE(r0, MSR_TS_MASK)
+	and.	r0,r0,r8
+	bne	1f
+
+	ld	r7,PACACURRENT(r13)
+	lbz	r0,THREAD+THREAD_LOAD_FP(r7)
+#ifdef CONFIG_ALTIVEC
+	lbz	r6,THREAD+THREAD_LOAD_VEC(r7)
+	add	r0,r0,r6
+#endif
+	cmpdi	r0,0
+	beq	.Lsyscall_restore_math_cont
+
+1:	addi    r3,r1,STACK_FRAME_OVERHEAD
+#ifdef CONFIG_PPC_BOOK3S
+	li	r10,MSR_RI
+	mtmsrd	r10,1		/* Restore RI */
+#endif
+	bl	restore_math
+#ifdef CONFIG_PPC_BOOK3S
+	li	r11,0
+	mtmsrd	r11,1
+#endif
+	/* Restore volatiles, reload MSR from updated one */
+	ld	r8,_MSR(r1)
+	ld	r3,RESULT(r1)
+	li	r11,-MAX_ERRNO
+	b	.Lsyscall_restore_math_cont
+
 /* Traced system call support */
 syscall_dotrace:
 	bl	save_nvgprs
@@ -488,33 +512,30 @@ _GLOBAL(_switch)
 	std	r23,_CCR(r1)
 	std	r1,KSP(r3)	/* Set old stack pointer */
 
-#ifdef CONFIG_SMP
-	/* We need a sync somewhere here to make sure that if the
-	 * previous task gets rescheduled on another CPU, it sees all
-	 * stores it has performed on this one.
+	/*
+	 * On SMP kernels, care must be taken because a task may be
+	 * scheduled off CPUx and on to CPUy. Memory ordering must be
+	 * considered.
+	 *
+	 * Cacheable stores on CPUx will be visible when the task is
+	 * scheduled on CPUy by virtue of the core scheduler barriers
+	 * (see "Notes on Program-Order guarantees on SMP systems." in
+	 * kernel/sched/core.c).
+	 *
+	 * Uncacheable stores in the case of involuntary preemption must
+	 * be taken care of. The smp_mb__before_spin_lock() in __schedule()
+	 * is implemented as hwsync on powerpc, which orders MMIO too. So
+	 * long as there is an hwsync in the context switch path, it will
+	 * be executed on the source CPU after the task has performed
+	 * all MMIO ops on that CPU, and on the destination CPU before the
+	 * task performs any MMIO ops there.
 	 */
-	sync
-#endif /* CONFIG_SMP */
 
 	/*
-	 * If we optimise away the clear of the reservation in system
-	 * calls because we know the CPU tracks the address of the
-	 * reservation, then we need to clear it here to cover the
-	 * case that the kernel context switch path has no larx
-	 * instructions.
+	 * The kernel context switch path must contain a spin_lock,
+	 * which contains larx/stcx, which will clear any reservation
+	 * of the task being switched.
 	 */
-BEGIN_FTR_SECTION
-	ldarx	r6,0,r1
-END_FTR_SECTION_IFSET(CPU_FTR_STCX_CHECKS_ADDRESS)
-
-BEGIN_FTR_SECTION
-/*
- * A cp_abort (copy paste abort) here ensures that when context switching, a
- * copy from one process can't leak into the paste of another.
- */
-	PPC_CP_ABORT
-END_FTR_SECTION_IFSET(CPU_FTR_ARCH_300)
-
 #ifdef CONFIG_PPC_BOOK3S
 /* Cancel all explict user streams as they will have no use after context
  * switch and will stop the HW from creating streams itself
@@ -583,6 +604,14 @@ END_MMU_FTR_SECTION_IFSET(MMU_FTR_1T_SEGMENT)
 	   top of the kernel stack. */
 	addi	r7,r7,THREAD_SIZE-SWITCH_FRAME_SIZE
 
+	/*
+	 * PMU interrupts in radix may come in here. They will use r1, not
+	 * PACAKSAVE, so this stack switch will not cause a problem. They
+	 * will store to the process stack, which may then be migrated to
+	 * another CPU. However the rq lock release on this CPU paired with
+	 * the rq lock acquire on the new CPU before the stack becomes
+	 * active on the new CPU, will order those stores.
+	 */
 	mr	r1,r8		/* start using new stack pointer */
 	std	r7,PACAKSAVE(r13)
 
