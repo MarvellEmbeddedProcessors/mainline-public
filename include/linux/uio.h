@@ -144,6 +144,22 @@ bool copy_from_iter_full_nocache(void *addr, size_t bytes, struct iov_iter *i)
 		return _copy_from_iter_full_nocache(addr, bytes, i);
 }
 
+#ifdef CONFIG_ARCH_HAS_UACCESS_FLUSHCACHE
+/*
+ * Note, users like pmem that depend on the stricter semantics of
+ * copy_from_iter_flushcache() than copy_from_iter_nocache() must check for
+ * IS_ENABLED(CONFIG_ARCH_HAS_UACCESS_FLUSHCACHE) before assuming that the
+ * destination is flushed from the cache on return.
+ */
+size_t copy_from_iter_flushcache(void *addr, size_t bytes, struct iov_iter *i);
+#else
+static inline size_t copy_from_iter_flushcache(void *addr, size_t bytes,
+				       struct iov_iter *i)
+{
+	return copy_from_iter_nocache(addr, bytes, i);
+}
+#endif
+
 size_t iov_iter_zero(size_t bytes, struct iov_iter *);
 unsigned long iov_iter_alignment(const struct iov_iter *i);
 unsigned long iov_iter_gap_alignment(const struct iov_iter *i);
