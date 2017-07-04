@@ -261,7 +261,7 @@ void pagetypeinfo_showmixedcount_print(struct seq_file *m,
 	 */
 	for (; pfn < end_pfn; ) {
 		if (!pfn_valid(pfn)) {
-			pfn = ALIGN(pfn + 1, MAX_ORDER_NR_PAGES);
+			pfn = ALIGN(pfn + 1, pageblock_nr_pages);
 			continue;
 		}
 
@@ -281,7 +281,11 @@ void pagetypeinfo_showmixedcount_print(struct seq_file *m,
 				continue;
 
 			if (PageBuddy(page)) {
-				pfn += (1UL << page_order(page)) - 1;
+				unsigned long freepage_order;
+
+				freepage_order = page_order_unsafe(page);
+				if (freepage_order < MAX_ORDER)
+					pfn += (1UL << freepage_order) - 1;
 				continue;
 			}
 
@@ -527,7 +531,7 @@ static void init_pages_in_zone(pg_data_t *pgdat, struct zone *zone)
 	 */
 	for (; pfn < end_pfn; ) {
 		if (!pfn_valid(pfn)) {
-			pfn = ALIGN(pfn + 1, MAX_ORDER_NR_PAGES);
+			pfn = ALIGN(pfn + 1, pageblock_nr_pages);
 			continue;
 		}
 

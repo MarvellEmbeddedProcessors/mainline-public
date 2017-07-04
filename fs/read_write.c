@@ -1415,7 +1415,8 @@ static ssize_t do_sendfile(int out_fd, int in_fd, loff_t *ppos,
 		add_wchar(current, retval);
 		fsnotify_access(in.file);
 		fsnotify_modify(out.file);
-		out.file->f_pos = out_pos;
+		if (out.file->f_op->llseek != no_llseek)
+			out.file->f_pos = out_pos;
 		if (ppos)
 			*ppos = pos;
 		else

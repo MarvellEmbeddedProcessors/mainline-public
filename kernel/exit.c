@@ -51,7 +51,6 @@
 #include <linux/task_io_accounting_ops.h>
 #include <linux/tracehook.h>
 #include <linux/fs_struct.h>
-#include <linux/userfaultfd_k.h>
 #include <linux/init_task.h>
 #include <linux/perf_event.h>
 #include <trace/events/sched.h>
@@ -1634,6 +1633,10 @@ long kernel_wait4(pid_t upid, int __user *stat_addr, int options,
 	if (options & ~(WNOHANG|WUNTRACED|WCONTINUED|
 			__WNOTHREAD|__WCLONE|__WALL))
 		return -EINVAL;
+
+	/* -INT_MIN is not defined */
+	if (upid == INT_MIN)
+		return -ESRCH;
 
 	if (upid == -1)
 		type = PIDTYPE_MAX;
