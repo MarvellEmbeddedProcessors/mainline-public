@@ -498,7 +498,7 @@ Wait Queues ``include/linux/wait.h``
 A wait queue is used to wait for someone to wake you up when a certain
 condition is true. They must be used carefully to ensure there is no
 race condition. You declare a :c:type:`wait_queue_head_t`, and then processes
-which want to wait for that condition declare a :c:type:`wait_queue_t`
+which want to wait for that condition declare a :c:type:`wait_queue_entry_t`
 referring to themselves, and place that in the queue.
 
 Declaring

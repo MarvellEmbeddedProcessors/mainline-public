@@ -2147,6 +2147,12 @@
 	memmap=nn[KMG]@ss[KMG]
 			[KNL] Force usage of a specific region of memory.
 			Region of memory to be used is from ss to ss+nn.
+			If @ss[KMG] is omitted, it is equivalent to mem=nn[KMG],
+			which limits max address to nn[KMG].
+			Multiple different regions can be specified,
+			comma delimited.
+			Example:
+				memmap=100M@2G,100M#3G,1G!1024G
 
 	memmap=nn[KMG]#ss[KMG]
 			[KNL,ACPI] Mark specific memory as ACPI data.
@@ -2159,6 +2165,9 @@
 			         memmap=64K$0x18690000
 			         or
 			         memmap=0x10000$0x18690000
+			Some bootloaders may need an escape character before '$',
+			like Grub2, otherwise '$' and the following number
+			will be eaten.
 
 	memmap=nn[KMG]!ss[KMG]
 			[KNL,X86] Mark specific memory as protected.
@@ -3249,21 +3258,17 @@
 
 	rcutree.gp_cleanup_delay=	[KNL]
 			Set the number of jiffies to delay each step of
-			RCU grace-period cleanup.  This only has effect
-			when CONFIG_RCU_TORTURE_TEST_SLOW_CLEANUP is set.
+			RCU grace-period cleanup.
 
 	rcutree.gp_init_delay=	[KNL]
 			Set the number of jiffies to delay each step of
-			RCU grace-period initialization.  This only has
-			effect when CONFIG_RCU_TORTURE_TEST_SLOW_INIT
-			is set.
+			RCU grace-period initialization.
 
 	rcutree.gp_preinit_delay=	[KNL]
 			Set the number of jiffies to delay each step of
 			RCU grace-period pre-initialization, that is,
 			the propagation of recent CPU-hotplug changes up
-			the rcu_node combining tree.  This only has effect
-			when CONFIG_RCU_TORTURE_TEST_SLOW_PREINIT is set.
+			the rcu_node combining tree.
 
 	rcutree.rcu_fanout_exact= [KNL]
 			Disable autobalancing of the rcu_node combining
@@ -3339,6 +3344,17 @@
 			This wake_up() will be accompanied by a
 			WARN_ONCE() splat and an ftrace_dump().
 
+	rcuperf.gp_async= [KNL]
+			Measure performance of asynchronous
+			grace-period primitives such as call_rcu().
+
+	rcuperf.gp_async_max= [KNL]
+			Specify the maximum number of outstanding
+			callbacks per writer thread.  When a writer
+			thread exceeds this limit, it invokes the
+			corresponding flavor of rcu_barrier() to allow
+			previously posted callbacks to drain.
+
 	rcuperf.gp_exp= [KNL]
 			Measure performance of expedited synchronous
 			grace-period primitives.
@@ -3366,16 +3382,21 @@
 	rcuperf.perf_runnable= [BOOT]
 			Start rcuperf running at boot time.
 
+	rcuperf.perf_type= [KNL]
+			Specify the RCU implementation to test.
+
 	rcuperf.shutdown= [KNL]
 			Shut the system down after performance tests
 			complete.  This is useful for hands-off automated
 			testing.
 
-	rcuperf.perf_type= [KNL]
-			Specify the RCU implementation to test.
-
 	rcuperf.verbose= [KNL]
 			Enable additional printk() statements.
+
+	rcuperf.writer_holdoff= [KNL]
+			Write-side holdoff between grace periods,
+			in microseconds.  The default of zero says
+			no holdoff.
 
 	rcutorture.cbflood_inter_holdoff= [KNL]
 			Set holdoff time (jiffies) between successive
@@ -3813,6 +3834,15 @@
 	spia_fio_base=
 	spia_pedr=
 	spia_peddr=
+
+	srcutree.counter_wrap_check [KNL]
+			Specifies how frequently to check for
+			grace-period sequence counter wrap for the
+			srcu_data structure's ->srcu_gp_seq_needed field.
+			The greater the number of bits set in this kernel
+			parameter, the less frequently counter wrap will
+			be checked for.  Note that the bottom two bits
+			are ignored.
 
 	srcutree.exp_holdoff [KNL]
 			Specifies how many nanoseconds must elapse
