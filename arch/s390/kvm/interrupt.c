@@ -1449,12 +1449,8 @@ static struct kvm_s390_interrupt_info *get_io_int(struct kvm *kvm,
 	return NULL;
 }
 
-/*
- * Dequeue and return an I/O interrupt matching any of the interruption
- * subclasses as designated by the isc mask in cr6 and the schid (if != 0).
- */
-struct kvm_s390_interrupt_info *kvm_s390_get_io_int(struct kvm *kvm,
-						    u64 isc_mask, u32 schid)
+static struct kvm_s390_interrupt_info *get_top_io_int(struct kvm *kvm,
+						      u64 isc_mask, u32 schid)
 {
 	struct kvm_s390_interrupt_info *inti = NULL;
 	int isc;
@@ -1463,6 +1459,69 @@ struct kvm_s390_interrupt_info *kvm_s390_get_io_int(struct kvm *kvm,
 		if (isc_mask & isc_to_isc_bits(isc))
 			inti = get_io_int(kvm, isc, schid);
 	}
+	return inti;
+}
+
+static int get_top_gisa_isc(struct kvm *kvm, u64 isc_mask, u32 schid)
+{
+	unsigned long active_mask;
+	int isc;
+
+	if (schid)
+		goto out;
+	if (!kvm->arch.gisa)
+		goto out;
+
+	active_mask = (isc_mask & kvm_s390_gisa_get_ipm(kvm->arch.gisa) << 24) << 32;
+	while (active_mask) {
+		isc = __flogr(active_mask);
+		if (kvm_s390_gisa_tac_ipm_gisc(kvm->arch.gisa, isc))
+			return isc;
+		clear_bit_inv(isc, &active_mask);
+	}
+out:
+	return -EINVAL;
+}
+
+/*
+ * Dequeue and return an I/O interrupt matching any of the interruption
+ * subclasses as designated by the isc mask in cr6 and the schid (if != 0).
+ * Take into account the interrupts pending in the interrupt list and in GISA.
+ */
+struct kvm_s390_interrupt_info *kvm_s390_get_io_int(struct kvm *kvm,
+						    u64 isc_mask, u32 schid)
+{
+	struct kvm_s390_interrupt_info *inti, *tmp_inti;
+	int isc;
+
+	inti = get_top_io_int(kvm, isc_mask, schid);
+
+	isc = get_top_gisa_isc(kvm, isc_mask, schid);
+	if (isc < 0)
+		/* no AI in GISA */
+		goto out;
+
+	if (!inti)
+		/* AI in GISA but no classical IO int */
+		goto gisa_out;
+
+	/* both types of interrupts present */
+	if (int_word_to_isc(inti->io.io_int_word) <= isc) {
+		/* classical IO int with higher priority */
+		kvm_s390_gisa_set_ipm_gisc(kvm->arch.gisa, isc);
+		goto out;
+	}
+gisa_out:
+	tmp_inti = kzalloc(sizeof(*inti), GFP_KERNEL);
+	if (tmp_inti) {
+		tmp_inti->type = KVM_S390_INT_IO(1, 0, 0, 0);
+		tmp_inti->io.io_int_word = isc_to_int_word(isc);
+		if (inti)
+			kvm_s390_reinject_io_int(kvm, inti);
+		inti = tmp_inti;
+	} else
+		kvm_s390_gisa_set_ipm_gisc(kvm->arch.gisa, isc);
+out:
 	return inti;
 }
 
