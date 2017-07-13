@@ -46,8 +46,6 @@
 
 #include "armada-8040.dtsi"
 
-#include <dt-bindings/gpio/gpio.h>
-
 / {
 	model = "Marvell 8040 MACHIATOBin";
 	compatible = "marvell,armada8040-mcbin", "marvell,armada8040",
@@ -82,9 +80,8 @@
 		regulator-name = "v_5v0_usb3_hst_vbus";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpio = <&cpm_gpio2 15 GPIO_ACTIVE_HIGH>;
+		/* actually GPIO controlled, but 8k has no GPIO support yet */
 		regulator-always-on;
-		enable-active-high;
 		status = "okay";
 	};
 
