@@ -223,6 +223,7 @@
 &cpm_eth0 {
 	status = "okay";
 	phy = <&phy0>;
+	phys = <&cpm_comphy4 0>;
 	phy-mode = "10gbase-kr";
 };
 
@@ -258,6 +259,7 @@
 &cps_eth0 {
 	status = "okay";
 	phy = <&phy8>;
+	phys = <&cps_comphy4 0>;
 	phy-mode = "10gbase-kr";
 };
 
@@ -266,6 +268,7 @@
 	status = "okay";
 	phy = <&ge_phy>;
 	phy-mode = "sgmii";
+	phys = <&cps_comphy0 1>;
 };
 
 &cps_pinctrl {
