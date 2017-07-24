@@ -215,6 +215,12 @@
 	status = "okay";
 };
 
+&cpm_eth0 {
+	status = "okay";
+	phy-mode = "10gbase-kr";
+	phys = <&cpm_comphy2 0>;
+};
+
 &cpm_eth1 {
 	status = "okay";
 	phy = <&phy0>;
