@@ -48,6 +48,7 @@
 #define ITS_FLAGS_WORKAROUND_CAVIUM_22375	(1ULL << 1)
 #define ITS_FLAGS_WORKAROUND_CAVIUM_23144	(1ULL << 2)
 #define ITS_FLAGS_SAVE_SUSPEND_STATE		(1ULL << 3)
+#define ITS_FLAGS_WORKAROUND_MVEBU_ERRATA	(1ULL << 4)
 
 #define RDIST_FLAGS_PROPBASE_NEEDS_FLUSHING	(1 << 0)
 
@@ -2979,6 +2980,19 @@ static bool __maybe_unused its_enable_quirk_hip07_161600802(void *data)
 	return true;
 }
 
+static bool __maybe_unused its_enable_quirk_mvebu(void *data)
+{
+	struct its_node *its = data;
+
+	/*
+	 * Enable MVEBU workaround to flush the command
+	 * queue & ITS translation table
+	 */
+	its->flags |= ITS_FLAGS_WORKAROUND_MVEBU_ERRATA;
+
+	return true;
+}
+
 static const struct gic_quirk its_quirks[] = {
 #ifdef CONFIG_CAVIUM_ERRATUM_22375
 	{
@@ -3026,6 +3040,10 @@ static const struct gic_quirk its_quirks[] = {
 	},
 #endif
 	{
+		.desc	= "ITS: Marvell workaround errata",
+		.iidr	= 0x0201043B, /* r1p0 revision ID for Marvell release */
+		.mask	= 0xffffffff,
+		.init	= its_enable_quirk_mvebu,
 	}
 };
 
@@ -3353,6 +3371,23 @@ static int __init its_probe_one(struct resource *res,
 		}
 		pr_info("ITS: using cache flushing for cmd queue\n");
 		its->flags |= ITS_FLAGS_CMDQ_NEEDS_FLUSHING;
+	}
+
+	/*
+	 * In Marvell case it was architecturally-defined that  GIC
+	 * support Shareability & Cacheability but due to fabric signals
+	 * issue, the HW allows to enable those bits (falsely), which
+	 * will lead to not enabling ITS_FLAGS_CMDQ_NEEDS_FLUSHING.
+	 * but due to that missing fabric signals, Marvell implementation
+	 * requires enabling ITS_FLAGS_CMDQ_NEEDS_FLUSHING.
+	 */
+	if (its->flags & ITS_FLAGS_WORKAROUND_MVEBU_ERRATA) {
+		its->flags |= ITS_FLAGS_CMDQ_NEEDS_FLUSHING;
+
+		baser &= ~(GITS_CBASER_SHAREABILITY_MASK |
+			   GITS_CBASER_CACHEABILITY_MASK);
+		baser |= GITS_CBASER_nCnB | GITS_CBASER_NonShareable;
+		writeq_relaxed(baser, its->base + GITS_CBASER);
 	}
 
 	gits_write_cwriter(0, its->base + GITS_CWRITER);

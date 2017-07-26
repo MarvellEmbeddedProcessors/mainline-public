@@ -1,0 +1,28 @@
+--- drivers/pci/host/pci-aardvark.c
++++ drivers/pci/host/pci-aardvark.c
+@@ -110,7 +117,9 @@
+ #define     PCIE_PHY_CTRL_OFF			16
+ #define     PCIE_PHY_BUF_CTRL_OFF		0
+ #define     PCIE_PHY_BUF_CTRL_INIT_VAL		0x1342
++#define PCIE_MSG_LOG				(CONTROL_BASE_ADDR + 0x30)
+ #define PCIE_ISR0_REG				(CONTROL_BASE_ADDR + 0x40)
++#define     PCIE_MSG_PM_PME                     BIT(7)
+ #define PCIE_ISR0_MASK_REG			(CONTROL_BASE_ADDR + 0x44)
+ #define     PCIE_ISR0_MSI_INT_PENDING		BIT(24)
+ #define     PCIE_ISR0_INTX_ASSERT(val)		BIT(16 + (val))
+@@ -215,6 +224,15 @@ struct advk_pcie {
+ 	struct gpio_desc *reset_gpio;
+ 	enum of_gpio_flags flags;
+ 	struct clk *clk;
++
++	/*virtual registers for root control*/
++	u32 bus_reg;
++	u32 io_base_reg;
++	u32 io_base_upper16_reg;
++	u32 mem_base_reg;
++	u32 pref_mem_base_reg;
++	u32 pref_base_upper32_reg;
++	u32 pref_limit_upper32_reg;
+ };
+ 
+ static inline void advk_writel(struct advk_pcie *pcie, u32 val, u64 reg)
