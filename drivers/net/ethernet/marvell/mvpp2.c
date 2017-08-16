@@ -8108,9 +8108,25 @@ static int mvpp2_probe(struct platform_device *pdev)
 	priv->tclk = clk_get_rate(priv->pp_clk);
 
 	if (priv->hw_version == MVPP22) {
+		/* If dma_mask points to coherent_dma_mask, setting both will
+		 * override the value of the other. This is problematic as the
+		 * PPv2 driver uses a 32-bit-mask for coherent accesses (txq,
+		 * rxq, bm) and a 40-bit mask for all other accesses.
+		 */
+		if (pdev->dev.dma_mask == &pdev->dev.coherent_dma_mask) {
+			pdev->dev.dma_mask = devm_kzalloc(&pdev->dev,
+							  sizeof(*pdev->dev.dma_mask),
+							  GFP_KERNEL);
+			if (!pdev->dev.dma_mask) {
+				err = -ENOMEM;
+				goto err_mg_clk;
+			}
+		}
+
 		err = dma_set_mask(&pdev->dev, DMA_BIT_MASK(40));
 		if (err)
 			goto err_mg_clk;
+
 		/* Sadly, the BM pools all share the same register to
 		 * store the high 32 bits of their address. So they
 		 * must all have the same high 32 bits, which forces
