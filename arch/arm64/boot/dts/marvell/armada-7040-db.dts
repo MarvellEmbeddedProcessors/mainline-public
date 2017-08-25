@@ -219,6 +219,7 @@
 	status = "okay";
 	phy = <&phy0>;
 	phy-mode = "sgmii";
+	phys = <&cpm_comphy0 1>;
 };
 
 &cpm_eth2 {
