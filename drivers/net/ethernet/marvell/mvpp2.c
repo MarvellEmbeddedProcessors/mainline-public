@@ -504,9 +504,13 @@
 #define MVPP2_TX_DESC_ALIGN		(MVPP2_DESC_ALIGNED_SIZE - 1)
 
 /* RX FIFO constants */
-#define MVPP2_RX_FIFO_PORT_DATA_SIZE	0x2000
-#define MVPP2_RX_FIFO_PORT_ATTR_SIZE	0x80
-#define MVPP2_RX_FIFO_PORT_MIN_PKT	0x80
+#define MVPP2_RX_FIFO_PORT_DATA_SIZE_32KB	0x8000
+#define MVPP2_RX_FIFO_PORT_DATA_SIZE_8KB	0x2000
+#define MVPP2_RX_FIFO_PORT_DATA_SIZE_4KB	0x1000
+#define MVPP2_RX_FIFO_PORT_ATTR_SIZE_32KB	0x200
+#define MVPP2_RX_FIFO_PORT_ATTR_SIZE_8KB	0x80
+#define MVPP2_RX_FIFO_PORT_ATTR_SIZE_4KB	0x40
+#define MVPP2_RX_FIFO_PORT_MIN_PKT		0x80
 
 /* RX buffer constants */
 #define MVPP2_SKB_SHINFO_SIZE \
@@ -7746,11 +7750,28 @@ static void mvpp2_rx_fifo_init(struct mvpp2 *priv)
 {
 	int port;
 
-	for (port = 0; port < MVPP2_MAX_PORTS; port++) {
+	/* The FIFO size parameters are set depending on the maximum speed a
+	 * given port can handle:
+	 * - Port 0: 10Gbps
+	 * - Port 1: 2.5Gbps
+	 * - Ports 2 and 3: 1Gbps
+	 */
+
+	mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(0),
+		    MVPP2_RX_FIFO_PORT_DATA_SIZE_32KB);
+	mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(0),
+		    MVPP2_RX_FIFO_PORT_ATTR_SIZE_32KB);
+
+	mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(1),
+		    MVPP2_RX_FIFO_PORT_DATA_SIZE_8KB);
+	mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(1),
+		    MVPP2_RX_FIFO_PORT_ATTR_SIZE_8KB);
+
+	for (port = 2; port < MVPP2_MAX_PORTS; port++) {
 		mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(port),
-			    MVPP2_RX_FIFO_PORT_DATA_SIZE);
+			    MVPP2_RX_FIFO_PORT_DATA_SIZE_4KB);
 		mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(port),
-			    MVPP2_RX_FIFO_PORT_ATTR_SIZE);
+			    MVPP2_RX_FIFO_PORT_ATTR_SIZE_4KB);
 	}
 
 	mvpp2_write(priv, MVPP2_RX_MIN_PKT_SIZE_REG,
