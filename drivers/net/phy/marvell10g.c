@@ -80,7 +80,7 @@ static int mv3310_config_init(struct phy_device *phydev)
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(supported) = { 0, };
 	u32 mask;
 	int val;
-
+	
 	/* Check that the PHY interface type is compatible */
 	if (phydev->interface != PHY_INTERFACE_MODE_SGMII &&
 	    phydev->interface != PHY_INTERFACE_MODE_XGMII &&
@@ -212,7 +212,7 @@ static int mv3310_config_aneg(struct phy_device *phydev)
 	if (ret > 0)
 		changed = true;
 
-	if (changed)
+	if (changed && phydev->interface != PHY_INTERFACE_MODE_10GKR)
 		ret = genphy_c45_restart_aneg(phydev);
 
 	return ret;

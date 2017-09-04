@@ -180,6 +180,7 @@ static inline const char *phy_modes(phy_interface_t interface)
 #define MII_ADDR_C45 (1<<30)
 
 struct device;
+struct phylink;
 struct sk_buff;
 
 /*
@@ -467,11 +468,13 @@ struct phy_device {
 
 	struct mutex lock;
 
+	struct phylink *phylink;
 	struct net_device *attached_dev;
 
 	u8 mdix;
 	u8 mdix_ctrl;
 
+	void (*phy_link_change)(struct phy_device *, bool up, bool do_carrier);
 	void (*adjust_link)(struct net_device *dev);
 };
 #define to_phy_device(d) container_of(to_mdio_device(d), \
@@ -664,6 +667,24 @@ struct phy_fixup {
 	int (*run)(struct phy_device *phydev);
 };
 
+const char *phy_speed_to_str(int speed);
+const char *phy_duplex_to_str(unsigned int duplex);
+
+/* A structure for mapping a particular speed and duplex
+ * combination to a particular SUPPORTED and ADVERTISED value
+ */
+struct phy_setting {
+	u32 speed;
+	u8 duplex;
+	u8 bit;
+};
+
+const struct phy_setting *
+phy_lookup_setting(int speed, int duplex, const unsigned long *mask,
+		   size_t maxbit, bool exact);
+size_t phy_speeds(unsigned int *speeds, size_t size,
+		  unsigned long *mask, size_t maxbit);
+
 /**
  * phy_read_mmd - Convenience function for reading a register
  * from an MMD on a given PHY.
@@ -726,14 +747,24 @@ static inline bool phy_is_internal(struct phy_device *phydev)
 }
 
 /**
+ * phy_interface_mode_is_rgmii - Convenience function for testing if a
+ * PHY interface mode is RGMII (all variants)
+ * @mode: the phy_interface_t enum
+ */
+static inline bool phy_interface_mode_is_rgmii(phy_interface_t mode)
+{
+	return mode >= PHY_INTERFACE_MODE_RGMII &&
+		mode <= PHY_INTERFACE_MODE_RGMII_TXID;
+};
+
+/**
  * phy_interface_is_rgmii - Convenience function for testing if a PHY interface
  * is RGMII (all variants)
  * @phydev: the phy_device struct
  */
 static inline bool phy_interface_is_rgmii(struct phy_device *phydev)
 {
-	return phydev->interface >= PHY_INTERFACE_MODE_RGMII &&
-		phydev->interface <= PHY_INTERFACE_MODE_RGMII_TXID;
+	return phy_interface_mode_is_rgmii(phydev->interface);
 };
 
 /*
