@@ -7401,17 +7401,13 @@ static bool mvpp2_port_has_tx_irqs(struct mvpp2 *priv,
 }
 
 static void mvpp2_port_copy_mac_addr(struct net_device *dev, struct mvpp2 *priv,
-				     struct device_node *port_node,
 				     char **mac_from)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
 	char hw_mac_addr[ETH_ALEN] = {0};
-	const char *dt_mac_addr;
 
-	dt_mac_addr = of_get_mac_address(port_node);
-	if (dt_mac_addr && is_valid_ether_addr(dt_mac_addr)) {
-		*mac_from = "device tree";
-		ether_addr_copy(dev->dev_addr, dt_mac_addr);
+	if (device_get_mac_address(&dev->dev, dev->dev_addr, ETH_ALEN)) {
+		*mac_from = "firmware";
 		return;
 	}
 
@@ -7598,24 +7594,26 @@ static const struct phylink_mac_ops mvpp2_phylink_ops = {
 
 /* Ports initialization */
 static int mvpp2_port_probe(struct platform_device *pdev,
-			    struct device_node *port_node,
+			    struct fwnode_handle *port_fwnode,
 			    struct mvpp2 *priv)
 {
 	struct phy *comphy;
 	struct mvpp2_port *port;
 	struct mvpp2_port_pcpu *port_pcpu;
+	struct device_node *port_node = to_of_node(port_fwnode);
 	struct net_device *dev;
 	struct resource *res;
 	struct phylink *phylink;
 	char *mac_from = "";
 	unsigned int ntxqs, nrxqs;
-	bool has_tx_irqs;
+	bool has_tx_irqs = false;
 	u32 id;
 	int features;
 	int phy_mode;
 	int err, i, cpu;
 
-	has_tx_irqs = mvpp2_port_has_tx_irqs(priv, port_node);
+	if (port_node)
+		has_tx_irqs = mvpp2_port_has_tx_irqs(priv, port_node);
 
 	if (!has_tx_irqs)
 		queue_mode = MVPP2_QDIST_SINGLE_MODE;
@@ -7630,7 +7628,9 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	if (!dev)
 		return -ENOMEM;
 
-	phy_mode = of_get_phy_mode(port_node);
+	dev->dev.fwnode = port_fwnode;
+
+	phy_mode = device_get_phy_mode(&dev->dev);
 	if (phy_mode < 0) {
 		dev_err(&pdev->dev, "incorrect phy mode\n");
 		err = phy_mode;
@@ -7646,7 +7646,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 		comphy = NULL;
 	}
 
-	if (of_property_read_u32(port_node, "port-id", &id)) {
+	if (device_property_read_u32(&dev->dev, "port-id", &id)) {
 		err = -EINVAL;
 		dev_err(&pdev->dev, "missing port-id value\n");
 		goto err_free_netdev;
@@ -7668,7 +7668,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	if (err)
 		goto err_free_netdev;
 
-	if (of_property_read_bool(port_node, "marvell,loopback"))
+	if (device_property_read_bool(&pdev->dev, "marvell,loopback"))
 		port->flags |= MVPP2_F_LOOPBACK;
 
 	port->id = id;
@@ -7689,8 +7689,8 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 			goto err_deinit_qvecs;
 		}
 	} else {
-		if (of_property_read_u32(port_node, "gop-port-id",
-					 &port->gop_id)) {
+		if (device_property_read_u32(&dev->dev, "gop-port-id",
+					     &port->gop_id)) {
 			err = -EINVAL;
 			dev_err(&pdev->dev, "missing gop-port-id value\n");
 			goto err_deinit_qvecs;
@@ -7706,7 +7706,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 		goto err_deinit_qvecs;
 	}
 
-	mvpp2_port_copy_mac_addr(dev, priv, port_node, &mac_from);
+	mvpp2_port_copy_mac_addr(dev, priv, &mac_from);
 
 	port->tx_ring_size = MVPP2_MAX_TXD;
 	port->rx_ring_size = MVPP2_MAX_RXD;
@@ -7759,7 +7759,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	/* The PHY node is optional. If not present the GoP link IRQ will be
 	 * used to handle link updates. Otherwise use phylink.
 	 */
-	if (of_find_property(port_node, "phy", NULL)) {
+	if (fwnode_property_present(port_fwnode, "phy")) {
 		phylink = phylink_create(dev, port_node, phy_mode,
 					 &mvpp2_phylink_ops);
 		if (IS_ERR(phylink)) {
@@ -8031,7 +8031,7 @@ static int mvpp2_init(struct platform_device *pdev, struct mvpp2 *priv)
 static int mvpp2_probe(struct platform_device *pdev)
 {
 	struct device_node *dn = pdev->dev.of_node;
-	struct device_node *port_node;
+	struct fwnode_handle *port_node;
 	struct mvpp2 *priv;
 	struct resource *res;
 	void __iomem *base;
@@ -8170,7 +8170,10 @@ static int mvpp2_probe(struct platform_device *pdev)
 	}
 
 	/* Initialize ports */
-	for_each_available_child_of_node(dn, port_node) {
+	device_for_each_child_node(&pdev->dev, port_node) {
+		if (dev_of_node(&pdev->dev) &&
+		    !of_device_is_available(to_of_node(port_node)))
+			continue;
 		err = mvpp2_port_probe(pdev, port_node, priv);
 		if (err < 0)
 			goto err_mg_clk;
@@ -8192,11 +8195,13 @@ err_pp_clk:
 static int mvpp2_remove(struct platform_device *pdev)
 {
 	struct mvpp2 *priv = platform_get_drvdata(pdev);
-	struct device_node *dn = pdev->dev.of_node;
-	struct device_node *port_node;
+	struct fwnode_handle *port_node;
 	int i = 0;
 
-	for_each_available_child_of_node(dn, port_node) {
+	device_for_each_child_node(&pdev->dev, port_node) {
+		if (dev_of_node(&pdev->dev) &&
+		    !of_device_is_available(to_of_node(port_node)))
+			continue;
 		if (priv->port_list[i])
 			mvpp2_port_remove(priv->port_list[i]);
 		i++;
