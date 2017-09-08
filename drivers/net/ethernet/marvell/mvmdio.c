@@ -368,6 +368,15 @@ static int orion_mdio_probe(struct platform_device *pdev)
 		goto out_mdio;
 	}
 
+	/* In case of ACPI resources declared in the tables and used
+	 * once, appear as 'in-use' in the OS. Make sure they are released,
+	 * before the network driver possibly requests it again during
+	 * its initialization. The care is taken there to avoid
+	 * concurrent access to this memory region.
+	 */
+	if (use_acpi)
+		release_resource(r);
+
 	platform_set_drvdata(pdev, bus);
 
 	return 0;
@@ -376,8 +385,11 @@ out_mdio:
 	if (dev->err_interrupt > 0)
 		writel(0, dev->regs + MVMDIO_ERR_INT_MASK);
 
-	if (use_acpi)
+	if (use_acpi) {
+		release_resource(r);
+
 		return ret;
+	}
 
 	for (i = 0; i < ARRAY_SIZE(dev->clk); i++) {
 		if (IS_ERR(dev->clk[i]))
