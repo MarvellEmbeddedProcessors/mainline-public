@@ -356,6 +356,29 @@ static void mvebu_uart_shutdown(struct uart_port *port)
 	free_irq(port->irq, port);
 }
 
+static void mvebu_uart_baud_rate_set(struct uart_port *port, unsigned int baud)
+{
+	struct mvebu_uart *mvuart = to_mvuart(port);
+	unsigned int baud_rate_div;
+	u32 brdv;
+
+	if (IS_ERR(mvuart->clk))
+		return;
+
+	/*
+	 * The UART clock is divided by the value of the divisor to generate
+	 * UCLK_OUT clock, which is 16 times faster than the baudrate.
+	 * This prescaler can achieve all standard baudrates until 230400.
+	 * Higher baudrates could be achieved for the extended UART by using the
+	 * programmable oversampling stack (also called fractional divisor).
+	 */
+	baud_rate_div = DIV_ROUND_UP(port->uartclk, baud * 16);
+	brdv = readl(port->membase + UART_BRDV);
+	brdv &= ~BRDV_BAUD_MASK;
+	brdv |= baud_rate_div;
+	writel(brdv, port->membase + UART_BRDV);
+}
+
 static void mvebu_uart_set_termios(struct uart_port *port,
 				   struct ktermios *termios,
 				   struct ktermios *old)
@@ -379,11 +402,20 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 	if ((termios->c_cflag & CREAD) == 0)
 		port->ignore_status_mask |= STAT_RX_RDY(port) | STAT_BRK_ERR;
 
-	if (old)
+	/*
+	 * Maximum achievable frequency with simple baudrate divisor is 230400.
+	 * Since the error per bit frame would be of more than 15%, achieving
+	 * higher frequencies would require to implement the fractional divisor
+	 * feature.
+	 */
+	baud = uart_get_baud_rate(port, termios, old, 0, 230400);
+
+	if (old && old->c_cflag && old->c_ispeed && old->c_ospeed)
 		tty_termios_copy_hw(termios, old);
 
-	baud = uart_get_baud_rate(port, termios, old, 0, 460800);
 	uart_update_timeout(port, termios->c_cflag, baud);
+
+	mvebu_uart_baud_rate_set(port, baud);
 
 	spin_unlock_irqrestore(&port->lock, flags);
 }
@@ -658,6 +690,16 @@ static int mvebu_uart_probe(struct platform_device *pdev)
 			    GFP_KERNEL);
 	if (!mvuart)
 		return -ENOMEM;
+
+	/* Get fixed clock frequency */
+	mvuart->clk = devm_clk_get(&pdev->dev, NULL);
+	if (IS_ERR(mvuart->clk)) {
+		if (PTR_ERR(mvuart->clk) == -EPROBE_DEFER)
+			return PTR_ERR(mvuart->clk);
+	} else {
+		if (!clk_prepare_enable(mvuart->clk))
+			port->uartclk = clk_get_rate(mvuart->clk);
+	}
 
 	mvuart->data = (struct mvebu_uart_driver_data *)match->data;
 	mvuart->port = port;
