@@ -1,13 +1,47 @@
-* Marvell UART : Non standard UART used in some of Marvell EBU SoCs (e.g., Armada-3700)
+* Marvell UART : Non standard UART used in some of Marvell EBU SoCs
+                 e.g., Armada-3700.
 
 Required properties:
-- compatible: "marvell,armada-3700-uart"
+- compatible: "marvell,armada-3700-uart" matches the standard, not
+	      extended UART IP.
+	      "marvell,armada-3700-uart-ext" is for the extended UART
+	      port which has an extended IP and also some
+	      registers/bitfields that moved compared to the other IP.
+	      Using a different compatible for this type of port
+	      allows to automatically select the right offsets.
 - reg: offset and length of the register set for the device.
-- interrupts: device interrupt
+- clocks: UART reference clock used to derive the baudrate.
+- interrupts: device interrupts. Each UART IP has two interrupt lines,
+              dedicated to both RX and TX interrupts, so called "uart-rx"
+	      and "uart-tx". The standard (ie. not extendend) port has a
+	      third interrupt line which is an OR of both RX and TX
+	      interrupts, so called "uart-sum". The driver currently
+	      uses "uart-rx" and "uart-tx" for both ports whereas older
+	      versions used only the summed interrupt (when only the
+	      standard UART port was supported). The standard port uses
+	      level interrupts while the extended port uses front
+	      interrupts.
 
 Example:
-	serial@12000 {
+	uart0: serial@12000 {
 		compatible = "marvell,armada-3700-uart";
 		reg = <0x12000 0x200>;
-		interrupts = <43>;
+		clocks = <&xtalclk>;
+		interrupts =
+		<GIC_SPI 11 IRQ_TYPE_LEVEL_HIGH>,
+		<GIC_SPI 12 IRQ_TYPE_LEVEL_HIGH>,
+		<GIC_SPI 13 IRQ_TYPE_LEVEL_HIGH>;
+		interrupt-names = "uart-sum", "uart-tx", "uart-rx";
+		status = "disabled";
+	};
+
+	uart1: serial@12200 {
+		compatible = "marvell,armada-3700-uart-ext";
+		reg = <0x12200 0x30>;
+		clocks = <&xtalclk>;
+		interrupts =
+		<GIC_SPI 30 IRQ_TYPE_EDGE_RISING>,
+		<GIC_SPI 31 IRQ_TYPE_EDGE_RISING>;
+		interrupt-names = "uart-tx", "uart-rx";
+		status = "disabled";
 	};
