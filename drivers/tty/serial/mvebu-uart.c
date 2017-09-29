@@ -495,6 +495,7 @@ static void mvebu_uart_set_termios(struct uart_port *port,
 
 	if (old && old->c_cflag && old->c_ispeed && old->c_ospeed)
 		tty_termios_copy_hw(termios, old);
+	tty_termios_encode_baud_rate(termios, baud, baud);
 
 	uart_update_timeout(port, termios->c_cflag, baud);
 
