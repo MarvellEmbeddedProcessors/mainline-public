@@ -1688,6 +1688,12 @@ static int its_alloc_tables(struct its_node *its)
 
 	its->device_ids = ids;
 
+	if (its->flags & ITS_FLAGS_WORKAROUND_MVEBU_ERRATA) {
+		shr = GITS_BASER_NonShareable;
+		cache = GITS_BASER_nCnB;
+	}
+
+
 	for (i = 0; i < GITS_BASER_NR_REGS; i++) {
 		struct its_baser *baser = its->tables + i;
 		u64 val = its_read_baser(its, baser);
