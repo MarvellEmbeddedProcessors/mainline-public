@@ -49,6 +49,16 @@
 #define  ARMADA_37XX_DVFS_LOAD_2	2
 #define  ARMADA_37XX_DVFS_LOAD_3	3
 
+/* AVS register set */
+#define ARMADA_37XX_AVS_CTL0	    0x0
+#define		ARMADA_37XX_AVS_ENABLE		BIT(30)
+#define		ARMADA_37XX_AVS_HIGH_VDD_LIMIT	16
+#define		ARMADA_37XX_AVS_LOW_VDD_LIMIT	22
+#define		ARMADA_37XX_AVS_VDD_MASK	0x3F
+#define ARMADA_37XX_AVS_CTL2	    0x8
+#define		ARMADA_37XX_AVS_LOW_VDD_EN	BIT(6)
+#define ARMADA_37XX_AVS_VSET(x)	    (0x1C + 4 * (x))
+
 /*
  * On Armada 37xx the Power management manages 4 level of CPU load,
  * each level can be associated with a CPU clock source, a CPU
@@ -56,9 +66,16 @@
  */
 #define LOAD_LEVEL_NR	4
 
+/*  AVS value for the corresponding voltage (in mV) */
+#define ARMADA_37XX_AVS_1050MV  0x1a
+#define ARMADA_37XX_AVS_1108MV  0x1f
+#define ARMADA_37XX_AVS_1155MV  0x23
+#define ARMADA_37XX_AVS_1202MV  0x27
+
 struct armada_37xx_dvfs {
 	u32 cpu_freq_max;
 	u8 divider[LOAD_LEVEL_NR];
+	u32 uvolt[LOAD_LEVEL_NR];
 };
 
 static struct armada_37xx_dvfs armada_37xx_dvfs[] = {
@@ -136,6 +153,78 @@ static void __init armada37xx_cpufreq_dvfs_setup(struct regmap *base,
 	clk_set_parent(clk, parent);
 }
 
+static void __init armada37xx_cpufreq_get_avs(unsigned int *avs_val,
+					      unsigned int *uvolt,
+					      unsigned int  freq)
+{
+		/* These value comes from the hardware designer */
+		if (freq  < 600000000) {
+			*uvolt = 1050000;
+			*avs_val = ARMADA_37XX_AVS_1050MV;
+		} else if (freq <= 800000000) {
+			*uvolt = 1108000;
+			*avs_val = ARMADA_37XX_AVS_1108MV;
+		} else if (freq <= 1000000000) {
+			*uvolt = 1155000;
+			*avs_val = ARMADA_37XX_AVS_1155MV;
+		} else if (freq <= 1200000000) {
+			*uvolt = 1202000;
+			*avs_val = ARMADA_37XX_AVS_1202MV;
+		}
+}
+
+static void __init armada37xx_cpufreq_avs_setup(struct regmap *base,
+						struct armada_37xx_dvfs *dvfs)
+{
+	unsigned int avs_val = 0, freq;
+	int load_level = 0;
+
+	if (base == NULL)
+		return;
+
+	/* Disable AVS before the configuration */
+	regmap_update_bits(base, ARMADA_37XX_AVS_CTL0,
+			   ARMADA_37XX_AVS_ENABLE, 0);
+
+
+	/* Enable low voltage mode */
+	regmap_update_bits(base, ARMADA_37XX_AVS_CTL2,
+			   ARMADA_37XX_AVS_LOW_VDD_EN,
+			   ARMADA_37XX_AVS_LOW_VDD_EN);
+
+
+	/* Set VDD for VSET 0 */
+	freq = dvfs->cpu_freq_max / dvfs->divider[0];
+	armada37xx_cpufreq_get_avs(&dvfs->uvolt[0], &avs_val, freq);
+	pr_err ("%s lvl=%d avs=%d\n", __func__, load_level, avs_val);
+
+	regmap_update_bits(base, ARMADA_37XX_AVS_CTL0,
+		ARMADA_37XX_AVS_VDD_MASK << ARMADA_37XX_AVS_HIGH_VDD_LIMIT |
+		ARMADA_37XX_AVS_VDD_MASK << ARMADA_37XX_AVS_LOW_VDD_LIMIT,
+			   avs_val << ARMADA_37XX_AVS_HIGH_VDD_LIMIT |
+			   avs_val << ARMADA_37XX_AVS_LOW_VDD_LIMIT);
+
+	for (load_level = 1; load_level < LOAD_LEVEL_NR; load_level++) {
+		freq = dvfs->cpu_freq_max / dvfs->divider[load_level];
+
+		armada37xx_cpufreq_get_avs(&dvfs->uvolt[load_level], &avs_val,
+					   freq);
+
+		pr_err ("%s lvl=%d avs=%d\n", __func__, load_level, avs_val);
+		regmap_update_bits(base, ARMADA_37XX_AVS_VSET(load_level-1),
+		    ARMADA_37XX_AVS_VDD_MASK << ARMADA_37XX_AVS_HIGH_VDD_LIMIT |
+		    ARMADA_37XX_AVS_VDD_MASK << ARMADA_37XX_AVS_LOW_VDD_LIMIT,
+		    avs_val << ARMADA_37XX_AVS_HIGH_VDD_LIMIT |
+		    avs_val << ARMADA_37XX_AVS_LOW_VDD_LIMIT);
+	}
+
+	/* Enable AVS after the configuration */
+	regmap_update_bits(base, ARMADA_37XX_AVS_CTL0,
+			   ARMADA_37XX_AVS_ENABLE,
+			   ARMADA_37XX_AVS_ENABLE);
+
+}
+
 static void __init armada37xx_cpufreq_disable_dvfs(struct regmap *base)
 {
 	unsigned int reg = ARMADA_37XX_NB_DYN_MOD,
@@ -167,7 +256,7 @@ static int __init armada37xx_cpufreq_driver_init(void)
 	struct armada_37xx_dvfs *dvfs;
 	struct platform_device *pdev;
 	unsigned int cur_frequency;
-	struct regmap *nb_pm_base;
+	struct regmap *nb_pm_base, *avs_base;
 	struct device *cpu_dev;
 	int load_lvl, ret;
 	struct clk *clk;
@@ -178,6 +267,14 @@ static int __init armada37xx_cpufreq_driver_init(void)
 	if (IS_ERR(nb_pm_base))
 		return -ENODEV;
 
+	avs_base =
+		syscon_regmap_lookup_by_compatible("marvell,armada-3700-avs");
+
+	/* if avs is not present don't use it but still try to setup dvfs */
+	if (IS_ERR(avs_base)) {
+		pr_info("Syscon failed for Adapting Voltage Scaling: skip it\n");
+		avs_base = NULL;
+	}
 	/* Before doing any configuration on the DVFS first, disable it */
 	armada37xx_cpufreq_disable_dvfs(nb_pm_base);
 
@@ -209,13 +306,17 @@ static int __init armada37xx_cpufreq_driver_init(void)
 	if (!dvfs)
 		return -EINVAL;
 
+	armada37xx_cpufreq_avs_setup(avs_base, dvfs);
+
 	armada37xx_cpufreq_dvfs_setup(nb_pm_base, clk, dvfs->divider);
 
 	for (load_lvl = ARMADA_37XX_DVFS_LOAD_0; load_lvl < LOAD_LEVEL_NR;
 	     load_lvl++) {
-		unsigned long freq = cur_frequency / dvfs->divider[load_lvl];
-
-		ret = dev_pm_opp_add(cpu_dev, freq, 0);
+		unsigned long freq = cur_frequency / dvfs->divider[load_lvl],
+			u_volt = dvfs->uvolt[load_lvl];
+		pr_err ("%s going to add level %d freq=%ld volt=%ld \n",
+			__func__, load_lvl, freq, u_volt);
+		ret = dev_pm_opp_add(cpu_dev, freq, u_volt);
 		if (ret) {
 			/* clean-up the already added opp before leaving */
 			while (load_lvl-- > ARMADA_37XX_DVFS_LOAD_0) {
@@ -224,6 +325,9 @@ static int __init armada37xx_cpufreq_driver_init(void)
 			}
 			return ret;
 		}
+		pr_err ("%s adding level %d freq=%ld volt=%ld \n", __func__,
+			load_lvl, freq, u_volt);
+
 	}
 
 	/* Now that everything is setup, enable the DVFS at hardware level */
