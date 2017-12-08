@@ -6,6 +6,22 @@
  */
 
 / {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * Reserve 16M per PPv2 engine of continuous memory pool for DMA
+		 * allocations. There are two PPv2 engines, hence reserve 32M.
+		 */
+		eth_cma: cma {
+			compatible = "shared-dma-pool";
+			size = <0 0x2000000>;
+			reusable;
+		};
+	};
+
 	aliases {
 		gpio1 = &cp1_gpio1;
 		gpio2 = &cp0_gpio2;
@@ -119,4 +135,12 @@
 	 * parallel, disable this one by default.
 	 */
 	status = "disabled";
+};
+
+&cp0_ethernet {
+	memory-region = <&eth_cma>;
+};
+
+&cp1_ethernet {
+	memory-region = <&eth_cma>;
 };
