@@ -6,6 +6,22 @@
  */
 
 / {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * Reserve 16M for the PPv2 engine of continuous memory pool for
+		 * DMA allocations.
+		 */
+		eth_cma: cma {
+			compatible = "shared-dma-pool";
+			size = <0 0x1000000>;
+			reusable;
+		};
+	};
+
 	aliases {
 		gpio1 = &cp0_gpio1;
 		gpio2 = &cp0_gpio2;
@@ -71,4 +87,8 @@
 			marvell,function = "nf";
 		};
 	};
+};
+
+&cp0_ethernet {
+	memory-region = <&eth_cma>;
 };
