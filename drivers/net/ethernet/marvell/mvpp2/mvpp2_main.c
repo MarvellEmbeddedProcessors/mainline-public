@@ -25,6 +25,7 @@
 #include <linux/of_net.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
+#include <linux/of_reserved_mem.h>
 #include <linux/phy.h>
 #include <linux/phylink.h>
 #include <linux/phy/phy.h>
@@ -5254,11 +5255,18 @@ static int mvpp2_probe(struct platform_device *pdev)
 			goto err_axi_clk;
 	}
 
+	/* Assign the reserved memory region to the device for DMA allocations,
+	 * if a memory-region phandle is found.
+	 */
+	if (dev_of_node(&pdev->dev))
+		of_reserved_mem_device_init_by_idx(&pdev->dev,
+						   pdev->dev.of_node, 0);
+
 	/* Initialize network controller */
 	err = mvpp2_init(pdev, priv);
 	if (err < 0) {
 		dev_err(&pdev->dev, "failed to initialize controller\n");
-		goto err_axi_clk;
+		goto err_mem_device;
 	}
 
 	/* Initialize ports */
@@ -5271,7 +5279,7 @@ static int mvpp2_probe(struct platform_device *pdev)
 	if (priv->port_count == 0) {
 		dev_err(&pdev->dev, "no ports enabled\n");
 		err = -ENODEV;
-		goto err_axi_clk;
+		goto err_mem_device;
 	}
 
 	/* Statistics must be gathered regularly because some of them (like
@@ -5301,6 +5309,8 @@ err_port_probe:
 			mvpp2_port_remove(priv->port_list[i]);
 		i++;
 	}
+err_mem_device:
+	of_reserved_mem_device_release(&pdev->dev);
 err_axi_clk:
 	clk_disable_unprepare(priv->axi_clk);
 
@@ -5354,6 +5364,8 @@ static int mvpp2_remove(struct platform_device *pdev)
 
 	if (is_acpi_node(port_fwnode))
 		return 0;
+
+	of_reserved_mem_device_release(&pdev->dev);
 
 	clk_disable_unprepare(priv->axi_clk);
 	clk_disable_unprepare(priv->mg_core_clk);
