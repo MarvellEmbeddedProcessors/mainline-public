@@ -412,7 +412,7 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 			unsigned long new_flags)
 {
 	substring_t args[MAX_OPT_ARGS];
-	char *p, *num, *orig = NULL;
+	char *p, *num;
 	u64 cache_gen;
 	int intarg;
 	int ret = 0;
@@ -434,16 +434,6 @@ int btrfs_parse_options(struct btrfs_fs_info *info, char *options,
 	 */
 	if (!options)
 		goto check;
-
-	/*
-	 * strsep changes the string, duplicate it because parse_options
-	 * gets called twice
-	 */
-	options = kstrdup(options, GFP_KERNEL);
-	if (!options)
-		return -ENOMEM;
-
-	orig = options;
 
 	while ((p = strsep(&options, ",")) != NULL) {
 		int token;
@@ -885,7 +875,6 @@ out:
 		btrfs_info(info, "disk space caching is enabled");
 	if (!ret && btrfs_test_opt(info, FREE_SPACE_TREE))
 		btrfs_info(info, "using free space tree");
-	kfree(orig);
 	return ret;
 }
 
