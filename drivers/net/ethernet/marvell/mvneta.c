@@ -4427,8 +4427,10 @@ static int mvneta_suspend(struct device *device)
 	struct net_device *dev = dev_get_drvdata(device);
 	struct mvneta_port *pp = netdev_priv(dev);
 
+	rtnl_lock();
 	if (netif_running(dev))
 		mvneta_stop(dev);
+	rtnl_unlock();
 	netif_device_detach(dev);
 	clk_disable_unprepare(pp->clk_bus);
 	clk_disable_unprepare(pp->clk);
@@ -4465,10 +4467,12 @@ static int mvneta_resume(struct device *device)
 		mvneta_fixed_link_update(pp, dev->phydev);
 
 	netif_device_attach(dev);
+	rtnl_lock();
 	if (netif_running(dev)) {
 		mvneta_open(dev);
 		mvneta_set_rx_mode(dev);
 	}
+	rtnl_unlock();
 
 	return 0;
 }
