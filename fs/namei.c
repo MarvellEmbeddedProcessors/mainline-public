@@ -1129,18 +1129,9 @@ static int follow_automount(struct path *path, struct nameidata *nd,
 	 * of the daemon to instantiate them before they can be used.
 	 */
 	if (!(nd->flags & (LOOKUP_PARENT | LOOKUP_DIRECTORY |
-			   LOOKUP_OPEN | LOOKUP_CREATE |
-			   LOOKUP_AUTOMOUNT))) {
-		/* Positive dentry that isn't meant to trigger an
-		 * automount, EISDIR will allow it to be used,
-		 * otherwise there's no mount here "now" so return
-		 * ENOENT.
-		 */
-		if (path->dentry->d_inode)
-			return -EISDIR;
-		else
-			return -ENOENT;
-	}
+			   LOOKUP_OPEN | LOOKUP_CREATE | LOOKUP_AUTOMOUNT)) &&
+	    path->dentry->d_inode)
+		return -EISDIR;
 
 	if (path->dentry->d_sb->s_user_ns != &init_user_ns)
 		return -EACCES;
@@ -2906,6 +2897,27 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 	return error;
 }
 EXPORT_SYMBOL(vfs_create);
+
+int vfs_mkobj(struct dentry *dentry, umode_t mode,
+		int (*f)(struct dentry *, umode_t, void *),
+		void *arg)
+{
+	struct inode *dir = dentry->d_parent->d_inode;
+	int error = may_create(dir, dentry);
+	if (error)
+		return error;
+
+	mode &= S_IALLUGO;
+	mode |= S_IFREG;
+	error = security_inode_create(dir, dentry, mode);
+	if (error)
+		return error;
+	error = f(dentry, mode, arg);
+	if (!error)
+		fsnotify_create(dir, dentry);
+	return error;
+}
+EXPORT_SYMBOL(vfs_mkobj);
 
 bool may_open_dev(const struct path *path)
 {
