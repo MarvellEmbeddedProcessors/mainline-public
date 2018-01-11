@@ -35,8 +35,8 @@
 /*
  * MegaRAID SAS Driver meta data
  */
-#define MEGASAS_VERSION				"07.703.05.00-rc1"
-#define MEGASAS_RELDATE				"October 5, 2017"
+#define MEGASAS_VERSION				"07.704.04.00-rc1"
+#define MEGASAS_RELDATE				"December 7, 2017"
 
 /*
  * Device IDs
@@ -230,7 +230,7 @@ enum MFI_CMD_OP {
 /*
  * Global functions
  */
-extern u8 MR_ValidateMapInfo(struct megasas_instance *instance);
+extern u8 MR_ValidateMapInfo(struct megasas_instance *instance, u64 map_id);
 
 
 /*
@@ -2188,7 +2188,6 @@ struct megasas_instance {
 	struct megasas_evt_detail *evt_detail;
 	dma_addr_t evt_detail_h;
 	struct megasas_cmd *aen_cmd;
-	struct mutex hba_mutex;
 	struct semaphore ioctl_sem;
 
 	struct Scsi_Host *host;

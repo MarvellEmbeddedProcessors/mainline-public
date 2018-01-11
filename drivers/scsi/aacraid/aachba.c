@@ -940,11 +940,8 @@ static void setinqstr(struct aac_dev *dev, void *data, int tindex)
 		while (*cp == ' ')
 			++cp;
 		/* last six chars reserved for vol type */
-		c = 0;
-		if (strlen(cp) > sizeof(str->pid)) {
-			c = cp[sizeof(str->pid)];
+		if (strlen(cp) > sizeof(str->pid))
 			cp[sizeof(str->pid)] = '\0';
-		}
 		inqstrcpy (cp, str->pid);
 
 		kfree(cname);
@@ -1868,7 +1865,7 @@ mem_free_all:
 
 static inline u32 aac_get_safw_phys_lun_count(struct aac_dev *dev)
 {
-	return get_unaligned_be32(&dev->safw_phys_luns->list_length[0]);
+	return get_unaligned_be32(&dev->safw_phys_luns->list_length[0])/24;
 }
 
 static inline u32 aac_get_safw_phys_bus(struct aac_dev *dev, int lun)
