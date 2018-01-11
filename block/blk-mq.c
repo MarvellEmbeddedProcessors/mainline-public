@@ -1694,9 +1694,9 @@ static blk_qc_t request_to_qc_t(struct blk_mq_hw_ctx *hctx, struct request *rq)
 	return blk_tag_to_qc_t(rq->internal_tag, hctx->queue_num, true);
 }
 
-static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
-					struct request *rq,
-					blk_qc_t *cookie)
+static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
+						struct request *rq,
+						blk_qc_t *cookie)
 {
 	struct request_queue *q = rq->q;
 	struct blk_mq_queue_data bd = {
@@ -1704,7 +1704,7 @@ static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 		.last = true,
 	};
 	blk_qc_t new_cookie;
-	blk_status_t ret;
+	blk_status_t ret = BLK_STS_OK;
 	bool run_queue = true;
 
 	/* RCU or SRCU read lock is needed before checking quiesced flag */
@@ -1735,31 +1735,36 @@ static void __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	switch (ret) {
 	case BLK_STS_OK:
 		*cookie = new_cookie;
-		return;
+		return ret;
 	case BLK_STS_RESOURCE:
 		__blk_mq_requeue_request(rq);
 		goto insert;
 	default:
 		*cookie = BLK_QC_T_NONE;
 		blk_mq_end_request(rq, ret);
-		return;
+		return ret;
 	}
 
 insert:
 	blk_mq_sched_insert_request(rq, false, run_queue, false,
 					hctx->flags & BLK_MQ_F_BLOCKING);
+	return ret;
 }
 
-static void blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
-		struct request *rq, blk_qc_t *cookie)
+static blk_status_t blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
+					      struct request *rq,
+					      blk_qc_t *cookie)
 {
 	int srcu_idx;
+	blk_status_t ret;
 
 	might_sleep_if(hctx->flags & BLK_MQ_F_BLOCKING);
 
 	hctx_lock(hctx, &srcu_idx);
-	__blk_mq_try_issue_directly(hctx, rq, cookie);
+	ret = __blk_mq_try_issue_directly(hctx, rq, cookie);
 	hctx_unlock(hctx, srcu_idx);
+
+	return ret;
 }
 
 static blk_qc_t blk_mq_make_request(struct request_queue *q, struct bio *bio)
