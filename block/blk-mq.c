@@ -1706,6 +1706,12 @@ static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	blk_qc_t new_cookie;
 	blk_status_t ret = BLK_STS_OK;
 	bool run_queue = true;
+	/*
+	 * If @cookie is NULL do not insert the request, this mode is used
+	 * by blk_insert_cloned_request() via blk_mq_request_direct_issue()
+	 */
+	bool dispatch_only = !cookie;
+	bool need_insert = false;
 
 	/* RCU or SRCU read lock is needed before checking quiesced flag */
 	if (blk_mq_hctx_stopped(hctx) || blk_queue_quiesced(q)) {
@@ -1713,25 +1719,38 @@ static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 		goto insert;
 	}
 
-	if (q->elevator)
+	if (q->elevator && !dispatch_only)
 		goto insert;
 
 	if (!blk_mq_get_driver_tag(rq, NULL, false))
-		goto insert;
+		need_insert = true;
 
-	if (!blk_mq_get_dispatch_budget(hctx)) {
+	if (!need_insert && !blk_mq_get_dispatch_budget(hctx)) {
 		blk_mq_put_driver_tag(rq);
+		need_insert = true;
+	}
+
+	if (need_insert) {
+		if (dispatch_only)
+			return BLK_STS_RESOURCE;
 		goto insert;
 	}
 
 	new_cookie = request_to_qc_t(hctx, rq);
+
+	ret = q->mq_ops->queue_rq(hctx, &bd);
+
+	if (dispatch_only) {
+		if (ret == BLK_STS_RESOURCE)
+			__blk_mq_requeue_request(rq);
+		return ret;
+	}
 
 	/*
 	 * For OK queue, we are done. For error, kill it. Any other
 	 * error (busy), just add it to our list as we previously
 	 * would have done
 	 */
-	ret = q->mq_ops->queue_rq(hctx, &bd);
 	switch (ret) {
 	case BLK_STS_OK:
 		*cookie = new_cookie;
@@ -1746,8 +1765,11 @@ static blk_status_t __blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	}
 
 insert:
-	blk_mq_sched_insert_request(rq, false, run_queue, false,
-					hctx->flags & BLK_MQ_F_BLOCKING);
+	if (!dispatch_only)
+		blk_mq_sched_insert_request(rq, false, run_queue, false,
+				hctx->flags & BLK_MQ_F_BLOCKING);
+	else
+		blk_mq_request_bypass_insert(rq, run_queue);
 	return ret;
 }
 
@@ -1765,6 +1787,14 @@ static blk_status_t blk_mq_try_issue_directly(struct blk_mq_hw_ctx *hctx,
 	hctx_unlock(hctx, srcu_idx);
 
 	return ret;
+}
+
+blk_status_t blk_mq_request_direct_issue(struct request *rq)
+{
+	struct blk_mq_ctx *ctx = rq->mq_ctx;
+	struct blk_mq_hw_ctx *hctx = blk_mq_map_queue(rq->q, ctx->cpu);
+
+	return blk_mq_try_issue_directly(hctx, rq, NULL);
 }
 
 static blk_qc_t blk_mq_make_request(struct request_queue *q, struct bio *bio)
