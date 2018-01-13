@@ -29,7 +29,6 @@
 #include <linux/errno.h>
 
 #include <asm/byteorder.h>
-#include <asm/word-at-a-time.h>
 #include <asm/page.h>
 
 #ifndef __HAVE_ARCH_STRNCASECMP
@@ -177,44 +176,7 @@ EXPORT_SYMBOL(strlcpy);
  */
 ssize_t strscpy(char *dest, const char *src, size_t count)
 {
-	const struct word_at_a_time constants = WORD_AT_A_TIME_CONSTANTS;
-	size_t max = count;
 	long res = 0;
-
-	if (count == 0)
-		return -E2BIG;
-
-#ifdef CONFIG_HAVE_EFFICIENT_UNALIGNED_ACCESS
-	/*
-	 * If src is unaligned, don't cross a page boundary,
-	 * since we don't know if the next page is mapped.
-	 */
-	if ((long)src & (sizeof(long) - 1)) {
-		size_t limit = PAGE_SIZE - ((long)src & (PAGE_SIZE - 1));
-		if (limit < max)
-			max = limit;
-	}
-#else
-	/* If src or dest is unaligned, don't do word-at-a-time. */
-	if (((long) dest | (long) src) & (sizeof(long) - 1))
-		max = 0;
-#endif
-
-	while (max >= sizeof(unsigned long)) {
-		unsigned long c, data;
-
-		c = *(unsigned long *)(src+res);
-		if (has_zero(c, &data, &constants)) {
-			data = prep_zero_mask(c, data, &constants);
-			data = create_zero_mask(data);
-			*(unsigned long *)(dest+res) = c & zero_bytemask(data);
-			return res + find_zero(data);
-		}
-		*(unsigned long *)(dest+res) = c;
-		res += sizeof(unsigned long);
-		count -= sizeof(unsigned long);
-		max -= sizeof(unsigned long);
-	}
 
 	while (count) {
 		char c;
