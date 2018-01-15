@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __NET_VXLAN_H
 #define __NET_VXLAN_H 1
 
@@ -145,7 +146,7 @@ struct vxlanhdr_gpe {
 		np_applied:1,
 		instance_applied:1,
 		version:2,
-reserved_flags2:2;
+		reserved_flags2:2;
 #elif defined(__BIG_ENDIAN_BITFIELD)
 	u8	reserved_flags2:2,
 		version:2,

@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #undef TRACE_SYSTEM
 #define TRACE_SYSTEM btrfs
 
@@ -192,7 +193,6 @@ DEFINE_EVENT(btrfs__inode, btrfs_inode_evict,
 	__print_flags(flag, "|",					\
 		{ (1 << EXTENT_FLAG_PINNED), 		"PINNED" 	},\
 		{ (1 << EXTENT_FLAG_COMPRESSED), 	"COMPRESSED" 	},\
-		{ (1 << EXTENT_FLAG_VACANCY), 		"VACANCY" 	},\
 		{ (1 << EXTENT_FLAG_PREALLOC), 		"PREALLOC" 	},\
 		{ (1 << EXTENT_FLAG_LOGGING),	 	"LOGGING" 	},\
 		{ (1 << EXTENT_FLAG_FILLING),	 	"FILLING" 	},\
