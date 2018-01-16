@@ -43,6 +43,7 @@ static struct kmem_cache *f2fs_inode_cachep;
 
 char *fault_name[FAULT_MAX] = {
 	[FAULT_KMALLOC]		= "kmalloc",
+	[FAULT_KVMALLOC]	= "kvmalloc",
 	[FAULT_PAGE_ALLOC]	= "page alloc",
 	[FAULT_PAGE_GET]	= "page get",
 	[FAULT_ALLOC_BIO]	= "alloc bio",
@@ -1008,7 +1009,8 @@ static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_bavail = user_block_count - valid_user_blocks(sbi) -
 						sbi->current_reserved_blocks;
 
-	avail_node_count = sbi->total_node_count - F2FS_RESERVED_NODE_NUM;
+	avail_node_count = sbi->total_node_count - sbi->nquota_files -
+						F2FS_RESERVED_NODE_NUM;
 
 	if (avail_node_count > user_block_count) {
 		buf->f_files = user_block_count;
@@ -2148,14 +2150,15 @@ static int init_blkz_info(struct f2fs_sb_info *sbi, int devi)
 	if (nr_sectors & (bdev_zone_sectors(bdev) - 1))
 		FDEV(devi).nr_blkz++;
 
-	FDEV(devi).blkz_type = kmalloc(FDEV(devi).nr_blkz, GFP_KERNEL);
+	FDEV(devi).blkz_type = f2fs_kmalloc(sbi, FDEV(devi).nr_blkz,
+								GFP_KERNEL);
 	if (!FDEV(devi).blkz_type)
 		return -ENOMEM;
 
 #define F2FS_REPORT_NR_ZONES   4096
 
-	zones = kcalloc(F2FS_REPORT_NR_ZONES, sizeof(struct blk_zone),
-			GFP_KERNEL);
+	zones = f2fs_kzalloc(sbi, sizeof(struct blk_zone) *
+				F2FS_REPORT_NR_ZONES, GFP_KERNEL);
 	if (!zones)
 		return -ENOMEM;
 
@@ -2295,8 +2298,8 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 	 * Initialize multiple devices information, or single
 	 * zoned block device information.
 	 */
-	sbi->devs = kcalloc(max_devices, sizeof(struct f2fs_dev_info),
-				GFP_KERNEL);
+	sbi->devs = f2fs_kzalloc(sbi, sizeof(struct f2fs_dev_info) *
+						max_devices, GFP_KERNEL);
 	if (!sbi->devs)
 		return -ENOMEM;
 
@@ -2462,6 +2465,13 @@ try_onemore:
 	else
 		sb->s_qcop = &f2fs_quotactl_ops;
 	sb->s_quota_types = QTYPE_MASK_USR | QTYPE_MASK_GRP | QTYPE_MASK_PRJ;
+
+	if (f2fs_sb_has_quota_ino(sbi->sb)) {
+		for (i = 0; i < MAXQUOTAS; i++) {
+			if (f2fs_qf_ino(sbi->sb, i))
+				sbi->nquota_files++;
+		}
+	}
 #endif
 
 	sb->s_op = &f2fs_sops;
@@ -2495,8 +2505,9 @@ try_onemore:
 		int n = (i == META) ? 1: NR_TEMP_TYPE;
 		int j;
 
-		sbi->write_io[i] = kmalloc(n * sizeof(struct f2fs_bio_info),
-								GFP_KERNEL);
+		sbi->write_io[i] = f2fs_kmalloc(sbi,
+					n * sizeof(struct f2fs_bio_info),
+					GFP_KERNEL);
 		if (!sbi->write_io[i]) {
 			err = -ENOMEM;
 			goto free_options;
@@ -2604,18 +2615,16 @@ try_onemore:
 		goto free_nm;
 	}
 
-	f2fs_join_shrinker(sbi);
-
 	err = f2fs_build_stats(sbi);
 	if (err)
-		goto free_nm;
+		goto free_node_inode;
 
 	/* read root inode and dentry */
 	root = f2fs_iget(sb, F2FS_ROOT_INO(sbi));
 	if (IS_ERR(root)) {
 		f2fs_msg(sb, KERN_ERR, "Failed to read root inode");
 		err = PTR_ERR(root);
-		goto free_node_inode;
+		goto free_stats;
 	}
 	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
 		iput(root);
@@ -2711,6 +2720,8 @@ skip_recovery:
 			sbi->valid_super_block ? 1 : 2, err);
 	}
 
+	f2fs_join_shrinker(sbi);
+
 	f2fs_msg(sbi->sb, KERN_NOTICE, "Mounted with checkpoint version = %llx",
 				cur_cp_version(F2FS_CKPT(sbi)));
 	f2fs_update_time(sbi, CP_TIME);
@@ -2737,14 +2748,12 @@ free_sysfs:
 free_root_inode:
 	dput(sb->s_root);
 	sb->s_root = NULL;
-free_node_inode:
-	truncate_inode_pages_final(NODE_MAPPING(sbi));
-	mutex_lock(&sbi->umount_mutex);
-	release_ino_entry(sbi, true);
-	f2fs_leave_shrinker(sbi);
-	iput(sbi->node_inode);
-	mutex_unlock(&sbi->umount_mutex);
+free_stats:
 	f2fs_destroy_stats(sbi);
+free_node_inode:
+	release_ino_entry(sbi, true);
+	truncate_inode_pages_final(NODE_MAPPING(sbi));
+	iput(sbi->node_inode);
 free_nm:
 	destroy_node_manager(sbi);
 free_sm:
