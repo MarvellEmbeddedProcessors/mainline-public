@@ -79,8 +79,9 @@ config NF_TABLES_ARP
 endif # NF_TABLES
 
 config NF_FLOW_TABLE_IPV4
-	select NF_FLOW_TABLE
 	tristate "Netfilter flow table IPv4 module"
+	depends on NF_CONNTRACK && NF_TABLES
+	select NF_FLOW_TABLE
 	help
 	  This option adds the flow table IPv4 support.
 
@@ -342,6 +343,7 @@ config IP_NF_TARGET_CLUSTERIP
 	depends on NF_CONNTRACK_IPV4
 	depends on NETFILTER_ADVANCED
 	select NF_CONNTRACK_MARK
+	select NETFILTER_FAMILY_ARP
 	help
 	  The CLUSTERIP target allows you to build load-balancing clusters of
 	  network servers without having a dedicated load-balancing

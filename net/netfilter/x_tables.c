@@ -1081,10 +1081,10 @@ struct xt_table *xt_request_find_table_lock(struct net *net, u_int8_t af,
 {
 	struct xt_table *t = xt_find_table_lock(net, af, name);
 
-#ifdef CONFIG_MODULE
+#ifdef CONFIG_MODULES
 	if (IS_ERR(t)) {
 		int err = request_module("%stable_%s", xt_prefix[af], name);
-		if (err)
+		if (err < 0)
 			return ERR_PTR(err);
 		t = xt_find_table_lock(net, af, name);
 	}
