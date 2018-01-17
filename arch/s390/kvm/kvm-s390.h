@@ -367,6 +367,13 @@ int kvm_s390_set_irq_state(struct kvm_vcpu *vcpu,
 			   void __user *buf, int len);
 int kvm_s390_get_irq_state(struct kvm_vcpu *vcpu,
 			   __u8 __user *buf, int len);
+void kvm_s390_gisa_set_ipm_gisc(struct kvm_s390_gisa *gisa, u32 gisc);
+u8 kvm_s390_gisa_get_ipm(struct kvm_s390_gisa *gisa);
+void kvm_s390_gisa_clear_ipm_gisc(struct kvm_s390_gisa *gisa, u32 gisc);
+int kvm_s390_gisa_tac_ipm_gisc(struct kvm_s390_gisa *gisa, u32 gisc);
+void kvm_s390_gisa_init(struct kvm *kvm);
+void kvm_s390_gisa_clear(struct kvm *kvm);
+void kvm_s390_gisa_destroy(struct kvm *kvm);
 
 /* implemented in guestdbg.c */
 void kvm_s390_backup_guest_per_regs(struct kvm_vcpu *vcpu);

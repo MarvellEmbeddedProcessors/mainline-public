@@ -1916,6 +1916,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 	if (!kvm->arch.dbf)
 		goto out_err;
 
+	BUILD_BUG_ON(sizeof(struct sie_page2) != 4096);
 	kvm->arch.sie_page2 =
 	     (struct sie_page2 *) get_zeroed_page(GFP_KERNEL | GFP_DMA);
 	if (!kvm->arch.sie_page2)
@@ -1986,6 +1987,7 @@ int kvm_arch_init_vm(struct kvm *kvm, unsigned long type)
 
 	spin_lock_init(&kvm->arch.start_stop_lock);
 	kvm_s390_vsie_init(kvm);
+	kvm_s390_gisa_init(kvm);
 	KVM_EVENT(3, "vm 0x%pK created by pid %u", kvm, current->pid);
 
 	return 0;
@@ -2048,6 +2050,7 @@ void kvm_arch_destroy_vm(struct kvm *kvm)
 	kvm_free_vcpus(kvm);
 	sca_dispose(kvm);
 	debug_unregister(kvm->arch.dbf);
+	kvm_s390_gisa_destroy(kvm);
 	free_page((unsigned long)kvm->arch.sie_page2);
 	if (!kvm_is_ucontrol(kvm))
 		gmap_remove(kvm->arch.gmap);
@@ -2458,6 +2461,11 @@ int kvm_arch_vcpu_setup(struct kvm_vcpu *vcpu)
 	if (test_kvm_facility(vcpu->kvm, 139))
 		vcpu->arch.sie_block->ecd |= ECD_MEF;
 
+	if (vcpu->arch.sie_block->gd) {
+		vcpu->arch.sie_block->eca |= ECA_AIV;
+		VCPU_EVENT(vcpu, 3, "AIV gisa format-%u enabled for cpu %03u",
+			   vcpu->arch.sie_block->gd & 0x3, vcpu->vcpu_id);
+	}
 	vcpu->arch.sie_block->sdnxo = ((unsigned long) &vcpu->run->s.regs.sdnx)
 					| SDNXC;
 	vcpu->arch.sie_block->riccbd = (unsigned long) &vcpu->run->s.regs.riccb;
@@ -2510,6 +2518,9 @@ struct kvm_vcpu *kvm_arch_vcpu_create(struct kvm *kvm,
 
 	vcpu->arch.sie_block->icpua = id;
 	spin_lock_init(&vcpu->arch.local_int.lock);
+	vcpu->arch.sie_block->gd = (u32)(u64)kvm->arch.gisa;
+	if (vcpu->arch.sie_block->gd && sclp.has_gisaf)
+		vcpu->arch.sie_block->gd |= GISA_FORMAT1;
 	seqcount_init(&vcpu->arch.cputm_seqcount);
 
 	rc = kvm_vcpu_init(vcpu, kvm, id);
