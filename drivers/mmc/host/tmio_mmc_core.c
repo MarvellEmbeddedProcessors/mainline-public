@@ -806,7 +806,7 @@ static int tmio_mmc_execute_tuning(struct mmc_host *mmc, u32 opcode)
 		if (ret == 0)
 			set_bit(i, host->taps);
 
-		mdelay(1);
+		usleep_range(1000, 1200);
 	}
 
 	ret = host->select_tuning(host);
@@ -958,7 +958,7 @@ static void tmio_mmc_power_on(struct tmio_mmc_host *host, unsigned short vdd)
 		 * 100us were not enough. Is this the same 140us delay, as in
 		 * tmio_mmc_set_ios()?
 		 */
-		udelay(200);
+		usleep_range(200, 300);
 	}
 	/*
 	 * It seems, VccQ should be switched on after Vcc, this is also what the
@@ -966,7 +966,7 @@ static void tmio_mmc_power_on(struct tmio_mmc_host *host, unsigned short vdd)
 	 */
 	if (!IS_ERR(mmc->supply.vqmmc) && !ret) {
 		ret = regulator_enable(mmc->supply.vqmmc);
-		udelay(200);
+		usleep_range(200, 300);
 	}
 
 	if (ret < 0)
@@ -1059,7 +1059,7 @@ static void tmio_mmc_set_ios(struct mmc_host *mmc, struct mmc_ios *ios)
 	}
 
 	/* Let things settle. delay taken from winCE driver */
-	udelay(140);
+	usleep_range(140, 200);
 	if (PTR_ERR(host->mrq) == -EINTR)
 		dev_dbg(&host->pdev->dev,
 			"%s.%d: IOS interrupted: clk %u, mode %u",
@@ -1098,7 +1098,7 @@ static int tmio_multi_io_quirk(struct mmc_card *card,
 	return blk_size;
 }
 
-static struct mmc_host_ops tmio_mmc_ops = {
+static const struct mmc_host_ops tmio_mmc_ops = {
 	.request	= tmio_mmc_request,
 	.set_ios	= tmio_mmc_set_ios,
 	.get_ro         = tmio_mmc_get_ro,
@@ -1158,6 +1158,8 @@ tmio_mmc_host_alloc(struct platform_device *pdev)
 	host = mmc_priv(mmc);
 	host->mmc = mmc;
 	host->pdev = pdev;
+	host->ops = tmio_mmc_ops;
+	mmc->ops = &host->ops;
 
 	return host;
 }
@@ -1185,15 +1187,16 @@ int tmio_mmc_host_probe(struct tmio_mmc_host *_host,
 		_host->write16_hook = NULL;
 
 	res_ctl = platform_get_resource(pdev, IORESOURCE_MEM, 0);
-	if (!res_ctl)
-		return -EINVAL;
+	_host->ctl = devm_ioremap_resource(&pdev->dev, res_ctl);
+	if (IS_ERR(_host->ctl))
+		return PTR_ERR(_host->ctl);
 
 	ret = mmc_of_parse(mmc);
 	if (ret < 0)
 		return ret;
 
 	_host->pdata = pdata;
-	platform_set_drvdata(pdev, mmc);
+	platform_set_drvdata(pdev, _host);
 
 	_host->set_pwr = pdata->set_pwr;
 	_host->set_clk_div = pdata->set_clk_div;
@@ -1202,15 +1205,11 @@ int tmio_mmc_host_probe(struct tmio_mmc_host *_host,
 	if (ret < 0)
 		return ret;
 
-	_host->ctl = devm_ioremap(&pdev->dev,
-				  res_ctl->start, resource_size(res_ctl));
-	if (!_host->ctl)
-		return -ENOMEM;
-
-	tmio_mmc_ops.card_busy = _host->card_busy;
-	tmio_mmc_ops.start_signal_voltage_switch =
-		_host->start_signal_voltage_switch;
-	mmc->ops = &tmio_mmc_ops;
+	if (pdata->flags & TMIO_MMC_USE_GPIO_CD) {
+		ret = mmc_gpio_request_cd(mmc, pdata->cd_gpio, 0);
+		if (ret)
+			return ret;
+	}
 
 	mmc->caps |= MMC_CAP_4_BIT_DATA | pdata->capabilities;
 	mmc->caps2 |= pdata->capabilities2;
@@ -1233,7 +1232,7 @@ int tmio_mmc_host_probe(struct tmio_mmc_host *_host,
 	}
 	mmc->max_seg_size = mmc->max_req_size;
 
-	_host->native_hotplug = !(pdata->flags & TMIO_MMC_USE_GPIO_CD ||
+	_host->native_hotplug = !(mmc_can_gpio_cd(mmc) ||
 				  mmc->caps & MMC_CAP_NEEDS_POLL ||
 				  !mmc_card_is_removable(mmc));
 
@@ -1307,14 +1306,6 @@ int tmio_mmc_host_probe(struct tmio_mmc_host *_host,
 
 	dev_pm_qos_expose_latency_limit(&pdev->dev, 100);
 
-	if (pdata->flags & TMIO_MMC_USE_GPIO_CD) {
-		ret = mmc_gpio_request_cd(mmc, pdata->cd_gpio, 0);
-		if (ret)
-			goto remove_host;
-
-		mmc_gpiod_request_cd_irq(mmc);
-	}
-
 	return 0;
 
 remove_host:
@@ -1351,8 +1342,7 @@ EXPORT_SYMBOL_GPL(tmio_mmc_host_remove);
 #ifdef CONFIG_PM
 int tmio_mmc_host_runtime_suspend(struct device *dev)
 {
-	struct mmc_host *mmc = dev_get_drvdata(dev);
-	struct tmio_mmc_host *host = mmc_priv(mmc);
+	struct tmio_mmc_host *host = dev_get_drvdata(dev);
 
 	tmio_mmc_disable_mmc_irqs(host, TMIO_MASK_ALL);
 
@@ -1372,8 +1362,7 @@ static bool tmio_mmc_can_retune(struct tmio_mmc_host *host)
 
 int tmio_mmc_host_runtime_resume(struct device *dev)
 {
-	struct mmc_host *mmc = dev_get_drvdata(dev);
-	struct tmio_mmc_host *host = mmc_priv(mmc);
+	struct tmio_mmc_host *host = dev_get_drvdata(dev);
 
 	tmio_mmc_reset(host);
 	tmio_mmc_clk_enable(host);
