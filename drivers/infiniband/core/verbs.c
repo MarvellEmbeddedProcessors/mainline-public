@@ -124,16 +124,24 @@ EXPORT_SYMBOL(ib_wc_status_msg);
 __attribute_const__ int ib_rate_to_mult(enum ib_rate rate)
 {
 	switch (rate) {
-	case IB_RATE_2_5_GBPS: return  1;
-	case IB_RATE_5_GBPS:   return  2;
-	case IB_RATE_10_GBPS:  return  4;
-	case IB_RATE_20_GBPS:  return  8;
-	case IB_RATE_30_GBPS:  return 12;
-	case IB_RATE_40_GBPS:  return 16;
-	case IB_RATE_60_GBPS:  return 24;
-	case IB_RATE_80_GBPS:  return 32;
-	case IB_RATE_120_GBPS: return 48;
-	default:	       return -1;
+	case IB_RATE_2_5_GBPS: return   1;
+	case IB_RATE_5_GBPS:   return   2;
+	case IB_RATE_10_GBPS:  return   4;
+	case IB_RATE_20_GBPS:  return   8;
+	case IB_RATE_30_GBPS:  return  12;
+	case IB_RATE_40_GBPS:  return  16;
+	case IB_RATE_60_GBPS:  return  24;
+	case IB_RATE_80_GBPS:  return  32;
+	case IB_RATE_120_GBPS: return  48;
+	case IB_RATE_14_GBPS:  return   6;
+	case IB_RATE_56_GBPS:  return  22;
+	case IB_RATE_112_GBPS: return  45;
+	case IB_RATE_168_GBPS: return  67;
+	case IB_RATE_25_GBPS:  return  10;
+	case IB_RATE_100_GBPS: return  40;
+	case IB_RATE_200_GBPS: return  80;
+	case IB_RATE_300_GBPS: return 120;
+	default:	       return  -1;
 	}
 }
 EXPORT_SYMBOL(ib_rate_to_mult);
@@ -141,16 +149,24 @@ EXPORT_SYMBOL(ib_rate_to_mult);
 __attribute_const__ enum ib_rate mult_to_ib_rate(int mult)
 {
 	switch (mult) {
-	case 1:  return IB_RATE_2_5_GBPS;
-	case 2:  return IB_RATE_5_GBPS;
-	case 4:  return IB_RATE_10_GBPS;
-	case 8:  return IB_RATE_20_GBPS;
-	case 12: return IB_RATE_30_GBPS;
-	case 16: return IB_RATE_40_GBPS;
-	case 24: return IB_RATE_60_GBPS;
-	case 32: return IB_RATE_80_GBPS;
-	case 48: return IB_RATE_120_GBPS;
-	default: return IB_RATE_PORT_CURRENT;
+	case 1:   return IB_RATE_2_5_GBPS;
+	case 2:   return IB_RATE_5_GBPS;
+	case 4:   return IB_RATE_10_GBPS;
+	case 8:   return IB_RATE_20_GBPS;
+	case 12:  return IB_RATE_30_GBPS;
+	case 16:  return IB_RATE_40_GBPS;
+	case 24:  return IB_RATE_60_GBPS;
+	case 32:  return IB_RATE_80_GBPS;
+	case 48:  return IB_RATE_120_GBPS;
+	case 6:   return IB_RATE_14_GBPS;
+	case 22:  return IB_RATE_56_GBPS;
+	case 45:  return IB_RATE_112_GBPS;
+	case 67:  return IB_RATE_168_GBPS;
+	case 10:  return IB_RATE_25_GBPS;
+	case 40:  return IB_RATE_100_GBPS;
+	case 80:  return IB_RATE_200_GBPS;
+	case 120: return IB_RATE_300_GBPS;
+	default:  return IB_RATE_PORT_CURRENT;
 	}
 }
 EXPORT_SYMBOL(mult_to_ib_rate);
@@ -421,8 +437,7 @@ static bool find_gid_index(const union ib_gid *gid,
 			   const struct ib_gid_attr *gid_attr,
 			   void *context)
 {
-	struct find_gid_index_context *ctx =
-		(struct find_gid_index_context *)context;
+	struct find_gid_index_context *ctx = context;
 
 	if (ctx->gid_type != gid_attr->gid_type)
 		return false;
@@ -481,8 +496,53 @@ int ib_get_gids_from_rdma_hdr(const union rdma_network_hdr *hdr,
 }
 EXPORT_SYMBOL(ib_get_gids_from_rdma_hdr);
 
+/* Resolve destination mac address and hop limit for unicast destination
+ * GID entry, considering the source GID entry as well.
+ * ah_attribute must have have valid port_num, sgid_index.
+ */
+static int ib_resolve_unicast_gid_dmac(struct ib_device *device,
+				       struct rdma_ah_attr *ah_attr)
+{
+	struct ib_gid_attr sgid_attr;
+	struct ib_global_route *grh;
+	int hop_limit = 0xff;
+	union ib_gid sgid;
+	int ret;
+
+	grh = rdma_ah_retrieve_grh(ah_attr);
+
+	ret = ib_query_gid(device,
+			   rdma_ah_get_port_num(ah_attr),
+			   grh->sgid_index,
+			   &sgid, &sgid_attr);
+	if (ret || !sgid_attr.ndev) {
+		if (!ret)
+			ret = -ENXIO;
+		return ret;
+	}
+
+	/* If destination is link local and source GID is RoCEv1,
+	 * IP stack is not used.
+	 */
+	if (rdma_link_local_addr((struct in6_addr *)grh->dgid.raw) &&
+	    sgid_attr.gid_type == IB_GID_TYPE_ROCE) {
+		rdma_get_ll_mac((struct in6_addr *)grh->dgid.raw,
+				ah_attr->roce.dmac);
+		goto done;
+	}
+
+	ret = rdma_addr_find_l2_eth_by_grh(&sgid, &grh->dgid,
+					   ah_attr->roce.dmac,
+					   sgid_attr.ndev, &hop_limit);
+done:
+	dev_put(sgid_attr.ndev);
+
+	grh->hop_limit = hop_limit;
+	return ret;
+}
+
 /*
- * This function creates ah from the incoming packet.
+ * This function initializes address handle attributes from the incoming packet.
  * Incoming packet has dgid of the receiver node on which this code is
  * getting executed and, sgid contains the GID of the sender.
  *
@@ -490,13 +550,10 @@ EXPORT_SYMBOL(ib_get_gids_from_rdma_hdr);
  * as sgid and, sgid is used as dgid because sgid contains destinations
  * GID whom to respond to.
  *
- * This is why when calling rdma_addr_find_l2_eth_by_grh() function, the
- * position of arguments dgid and sgid do not match the order of the
- * parameters.
  */
-int ib_init_ah_from_wc(struct ib_device *device, u8 port_num,
-		       const struct ib_wc *wc, const struct ib_grh *grh,
-		       struct rdma_ah_attr *ah_attr)
+int ib_init_ah_attr_from_wc(struct ib_device *device, u8 port_num,
+			    const struct ib_wc *wc, const struct ib_grh *grh,
+			    struct rdma_ah_attr *ah_attr)
 {
 	u32 flow_class;
 	u16 gid_index;
@@ -523,57 +580,33 @@ int ib_init_ah_from_wc(struct ib_device *device, u8 port_num,
 	if (ret)
 		return ret;
 
+	rdma_ah_set_sl(ah_attr, wc->sl);
+	rdma_ah_set_port_num(ah_attr, port_num);
+
 	if (rdma_protocol_roce(device, port_num)) {
-		int if_index = 0;
 		u16 vlan_id = wc->wc_flags & IB_WC_WITH_VLAN ?
 				wc->vlan_id : 0xffff;
-		struct net_device *idev;
-		struct net_device *resolved_dev;
 
 		if (!(wc->wc_flags & IB_WC_GRH))
 			return -EPROTOTYPE;
 
-		if (!device->get_netdev)
-			return -EOPNOTSUPP;
-
-		idev = device->get_netdev(device, port_num);
-		if (!idev)
-			return -ENODEV;
-
-		ret = rdma_addr_find_l2_eth_by_grh(&dgid, &sgid,
-						   ah_attr->roce.dmac,
-						   wc->wc_flags & IB_WC_WITH_VLAN ?
-						   NULL : &vlan_id,
-						   &if_index, &hoplimit);
-		if (ret) {
-			dev_put(idev);
-			return ret;
-		}
-
-		resolved_dev = dev_get_by_index(&init_net, if_index);
-		rcu_read_lock();
-		if (resolved_dev != idev && !rdma_is_upper_dev_rcu(idev,
-								   resolved_dev))
-			ret = -EHOSTUNREACH;
-		rcu_read_unlock();
-		dev_put(idev);
-		dev_put(resolved_dev);
+		ret = get_sgid_index_from_eth(device, port_num,
+					      vlan_id, &dgid,
+					      gid_type, &gid_index);
 		if (ret)
 			return ret;
 
-		ret = get_sgid_index_from_eth(device, port_num, vlan_id,
-					      &dgid, gid_type, &gid_index);
-		if (ret)
-			return ret;
-	}
+		flow_class = be32_to_cpu(grh->version_tclass_flow);
+		rdma_ah_set_grh(ah_attr, &sgid,
+				flow_class & 0xFFFFF,
+				(u8)gid_index, hoplimit,
+				(flow_class >> 20) & 0xFF);
+		return ib_resolve_unicast_gid_dmac(device, ah_attr);
+	} else {
+		rdma_ah_set_dlid(ah_attr, wc->slid);
+		rdma_ah_set_path_bits(ah_attr, wc->dlid_path_bits);
 
-	rdma_ah_set_dlid(ah_attr, wc->slid);
-	rdma_ah_set_sl(ah_attr, wc->sl);
-	rdma_ah_set_path_bits(ah_attr, wc->dlid_path_bits);
-	rdma_ah_set_port_num(ah_attr, port_num);
-
-	if (wc->wc_flags & IB_WC_GRH) {
-		if (!rdma_cap_eth_ah(device, port_num)) {
+		if (wc->wc_flags & IB_WC_GRH) {
 			if (dgid.global.interface_id != cpu_to_be64(IB_SA_WELL_KNOWN_GUID)) {
 				ret = ib_find_cached_gid_by_port(device, &dgid,
 								 IB_GID_TYPE_IB,
@@ -584,18 +617,17 @@ int ib_init_ah_from_wc(struct ib_device *device, u8 port_num,
 			} else {
 				gid_index = 0;
 			}
+
+			flow_class = be32_to_cpu(grh->version_tclass_flow);
+			rdma_ah_set_grh(ah_attr, &sgid,
+					flow_class & 0xFFFFF,
+					(u8)gid_index, hoplimit,
+					(flow_class >> 20) & 0xFF);
 		}
-
-		flow_class = be32_to_cpu(grh->version_tclass_flow);
-		rdma_ah_set_grh(ah_attr, &sgid,
-				flow_class & 0xFFFFF,
-				(u8)gid_index, hoplimit,
-				(flow_class >> 20) & 0xFF);
-
+		return 0;
 	}
-	return 0;
 }
-EXPORT_SYMBOL(ib_init_ah_from_wc);
+EXPORT_SYMBOL(ib_init_ah_attr_from_wc);
 
 struct ib_ah *ib_create_ah_from_wc(struct ib_pd *pd, const struct ib_wc *wc,
 				   const struct ib_grh *grh, u8 port_num)
@@ -603,7 +635,7 @@ struct ib_ah *ib_create_ah_from_wc(struct ib_pd *pd, const struct ib_wc *wc,
 	struct rdma_ah_attr ah_attr;
 	int ret;
 
-	ret = ib_init_ah_from_wc(pd->device, port_num, wc, grh, &ah_attr);
+	ret = ib_init_ah_attr_from_wc(pd->device, port_num, wc, grh, &ah_attr);
 	if (ret)
 		return ERR_PTR(ret);
 
@@ -1274,11 +1306,6 @@ static int ib_resolve_eth_dmac(struct ib_device *device,
 
 	grh = rdma_ah_retrieve_grh(ah_attr);
 
-	if (rdma_link_local_addr((struct in6_addr *)grh->dgid.raw)) {
-		rdma_get_ll_mac((struct in6_addr *)grh->dgid.raw,
-				ah_attr->roce.dmac);
-		return 0;
-	}
 	if (rdma_is_multicast_addr((struct in6_addr *)ah_attr->grh.dgid.raw)) {
 		if (ipv6_addr_v4mapped((struct in6_addr *)ah_attr->grh.dgid.raw)) {
 			__be32 addr = 0;
@@ -1290,34 +1317,8 @@ static int ib_resolve_eth_dmac(struct ib_device *device,
 					(char *)ah_attr->roce.dmac);
 		}
 	} else {
-		union ib_gid		sgid;
-		struct ib_gid_attr	sgid_attr;
-		int			ifindex;
-		int			hop_limit;
-
-		ret = ib_query_gid(device,
-				   rdma_ah_get_port_num(ah_attr),
-				   grh->sgid_index,
-				   &sgid, &sgid_attr);
-
-		if (ret || !sgid_attr.ndev) {
-			if (!ret)
-				ret = -ENXIO;
-			goto out;
-		}
-
-		ifindex = sgid_attr.ndev->ifindex;
-
-		ret =
-		rdma_addr_find_l2_eth_by_grh(&sgid, &grh->dgid,
-					     ah_attr->roce.dmac,
-					     NULL, &ifindex, &hop_limit);
-
-		dev_put(sgid_attr.ndev);
-
-		grh->hop_limit = hop_limit;
+		ret = ib_resolve_unicast_gid_dmac(device, ah_attr);
 	}
-out:
 	return ret;
 }
 
@@ -1335,6 +1336,7 @@ out:
 int ib_modify_qp_with_udata(struct ib_qp *qp, struct ib_qp_attr *attr,
 			    int attr_mask, struct ib_udata *udata)
 {
+	u8 port = attr_mask & IB_QP_PORT ? attr->port_num : qp->port;
 	int ret;
 
 	if (attr_mask & IB_QP_AV) {
@@ -1342,6 +1344,21 @@ int ib_modify_qp_with_udata(struct ib_qp *qp, struct ib_qp_attr *attr,
 		if (ret)
 			return ret;
 	}
+
+	if (rdma_ib_or_roce(qp->device, port)) {
+		if (attr_mask & IB_QP_RQ_PSN && attr->rq_psn & ~0xffffff) {
+			pr_warn("%s: %s rq_psn overflow, masking to 24 bits\n",
+				__func__, qp->device->name);
+			attr->rq_psn &= 0xffffff;
+		}
+
+		if (attr_mask & IB_QP_SQ_PSN && attr->sq_psn & ~0xffffff) {
+			pr_warn("%s: %s sq_psn overflow, masking to 24 bits\n",
+				__func__, qp->device->name);
+			attr->sq_psn &= 0xffffff;
+		}
+	}
+
 	ret = ib_security_modify_qp(qp, attr, attr_mask, udata);
 	if (!ret && (attr_mask & IB_QP_PORT))
 		qp->port = attr->port_num;
@@ -1790,11 +1807,11 @@ EXPORT_SYMBOL(ib_dealloc_xrcd);
  * ib_create_wq - Creates a WQ associated with the specified protection
  * domain.
  * @pd: The protection domain associated with the WQ.
- * @wq_init_attr: A list of initial attributes required to create the
+ * @wq_attr: A list of initial attributes required to create the
  * WQ. If WQ creation succeeds, then the attributes are updated to
  * the actual capabilities of the created WQ.
  *
- * wq_init_attr->max_wr and wq_init_attr->max_sge determine
+ * wq_attr->max_wr and wq_attr->max_sge determine
  * the requested size of the WQ, and set to the actual values allocated
  * on return.
  * If ib_create_wq() succeeds, then max_wr and max_sge will always be

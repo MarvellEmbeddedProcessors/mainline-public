@@ -1082,6 +1082,7 @@ enum ib_qp_type {
 	IB_QPT_XRC_INI = 9,
 	IB_QPT_XRC_TGT,
 	IB_QPT_MAX,
+	IB_QPT_DRIVER = 0xFF,
 	/* Reserve a range for qp types internal to the low level driver.
 	 * These qp types will not be visible at the IB core layer, so the
 	 * IB_QPT_MAX usages should not be affected in the core layer
@@ -2836,8 +2837,7 @@ int ib_modify_port(struct ib_device *device,
 		   struct ib_port_modify *port_modify);
 
 int ib_find_gid(struct ib_device *device, union ib_gid *gid,
-		enum ib_gid_type gid_type, struct net_device *ndev,
-		u8 *port_num, u16 *index);
+		struct net_device *ndev, u8 *port_num, u16 *index);
 
 int ib_find_pkey(struct ib_device *device,
 		 u8 port_num, u16 pkey, u16 *index);
@@ -2905,7 +2905,7 @@ int ib_get_gids_from_rdma_hdr(const union rdma_network_hdr *hdr,
 int ib_get_rdma_header_version(const union rdma_network_hdr *hdr);
 
 /**
- * ib_init_ah_from_wc - Initializes address handle attributes from a
+ * ib_init_ah_attr_from_wc - Initializes address handle attributes from a
  *   work completion.
  * @device: Device on which the received message arrived.
  * @port_num: Port on which the received message arrived.
@@ -2915,9 +2915,9 @@ int ib_get_rdma_header_version(const union rdma_network_hdr *hdr);
  * @ah_attr: Returned attributes that can be used when creating an address
  *   handle for replying to the message.
  */
-int ib_init_ah_from_wc(struct ib_device *device, u8 port_num,
-		       const struct ib_wc *wc, const struct ib_grh *grh,
-		       struct rdma_ah_attr *ah_attr);
+int ib_init_ah_attr_from_wc(struct ib_device *device, u8 port_num,
+			    const struct ib_wc *wc, const struct ib_grh *grh,
+			    struct rdma_ah_attr *ah_attr);
 
 /**
  * ib_create_ah_from_wc - Creates an address handle associated with the
@@ -3849,5 +3849,13 @@ ib_get_vector_affinity(struct ib_device *device, int comp_vector)
 	return device->get_vector_affinity(device, comp_vector);
 
 }
+
+/**
+ * rdma_roce_rescan_device - Rescan all of the network devices in the system
+ * and add their gids, as needed, to the relevant RoCE devices.
+ *
+ * @device:         the rdma device
+ */
+void rdma_roce_rescan_device(struct ib_device *ibdev);
 
 #endif /* IB_VERBS_H */
