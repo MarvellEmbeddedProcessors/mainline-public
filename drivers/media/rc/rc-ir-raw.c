@@ -1,16 +1,7 @@
-/* rc-ir-raw.c - handle IR pulse/space events
- *
- * Copyright (C) 2010 by Mauro Carvalho Chehab
- *
- * This program is free software; you can redistribute it and/or modify
- *  it under the terms of the GNU General Public License as published by
- *  the Free Software Foundation version 2 of the License.
- *
- *  This program is distributed in the hope that it will be useful,
- *  but WITHOUT ANY WARRANTY; without even the implied warranty of
- *  MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- *  GNU General Public License for more details.
- */
+// SPDX-License-Identifier: GPL-2.0
+// rc-ir-raw.c - handle IR pulse/space events
+//
+// Copyright (C) 2010 by Mauro Carvalho Chehab
 
 #include <linux/export.h>
 #include <linux/kthread.h>
@@ -40,6 +31,7 @@ static int ir_raw_event_thread(void *data)
 				if (raw->dev->enabled_protocols &
 				    handler->protocols || !handler->protocols)
 					handler->decode(raw->dev, ev);
+			ir_lirc_raw_event(raw->dev, ev);
 			raw->prev_ev = ev;
 		}
 		mutex_unlock(&ir_raw_handler_lock);
@@ -457,6 +449,8 @@ int ir_raw_encode_scancode(enum rc_proto protocol, u32 scancode,
 	int ret = -EINVAL;
 	u64 mask = 1ULL << protocol;
 
+	ir_raw_load_modules(&mask);
+
 	mutex_lock(&ir_raw_handler_lock);
 	list_for_each_entry(handler, &ir_raw_handler_list, list) {
 		if (handler->protocols & mask && handler->encode) {
@@ -493,20 +487,43 @@ static void edge_handle(struct timer_list *t)
 	ir_raw_event_handle(dev);
 }
 
+/**
+ * ir_raw_encode_carrier() - Get carrier used for protocol
+ *
+ * @protocol:		protocol
+ *
+ * Attempts to find the carrier for the specified protocol
+ *
+ * Returns:	The carrier in Hz
+ *		-EINVAL if the protocol is invalid, or if no
+ *		compatible encoder was found.
+ */
+int ir_raw_encode_carrier(enum rc_proto protocol)
+{
+	struct ir_raw_handler *handler;
+	int ret = -EINVAL;
+	u64 mask = BIT_ULL(protocol);
+
+	mutex_lock(&ir_raw_handler_lock);
+	list_for_each_entry(handler, &ir_raw_handler_list, list) {
+		if (handler->protocols & mask && handler->encode) {
+			ret = handler->carrier;
+			break;
+		}
+	}
+	mutex_unlock(&ir_raw_handler_lock);
+
+	return ret;
+}
+EXPORT_SYMBOL(ir_raw_encode_carrier);
+
 /*
  * Used to (un)register raw event clients
  */
 int ir_raw_event_prepare(struct rc_dev *dev)
 {
-	static bool raw_init; /* 'false' default value, raw decoders loaded? */
-
 	if (!dev)
 		return -EINVAL;
-
-	if (!raw_init) {
-		request_module("ir-lirc-codec");
-		raw_init = true;
-	}
 
 	dev->raw = kzalloc(sizeof(*dev->raw), GFP_KERNEL);
 	if (!dev->raw)
@@ -525,19 +542,11 @@ int ir_raw_event_register(struct rc_dev *dev)
 	struct ir_raw_handler *handler;
 	struct task_struct *thread;
 
-	/*
-	 * raw transmitters do not need any event registration
-	 * because the event is coming from userspace
-	 */
-	if (dev->driver_type != RC_DRIVER_IR_RAW_TX) {
-		thread = kthread_run(ir_raw_event_thread, dev->raw, "rc%u",
-				     dev->minor);
+	thread = kthread_run(ir_raw_event_thread, dev->raw, "rc%u", dev->minor);
+	if (IS_ERR(thread))
+		return PTR_ERR(thread);
 
-		if (IS_ERR(thread))
-			return PTR_ERR(thread);
-
-		dev->raw->thread = thread;
-	}
+	dev->raw->thread = thread;
 
 	mutex_lock(&ir_raw_handler_lock);
 	list_add_tail(&dev->raw->list, &ir_raw_client_list);

@@ -215,6 +215,7 @@ static int ir_mce_kbd_decode(struct rc_dev *dev, struct ir_raw_event ev)
 	struct mce_kbd_dec *data = &dev->raw->mce_kbd;
 	u32 scancode;
 	unsigned long delay;
+	struct lirc_scancode lsc = {};
 
 	if (!is_timing_event(ev)) {
 		if (ev.reset)
@@ -326,18 +327,22 @@ again:
 			mod_timer(&data->rx_timeout, jiffies + delay);
 			/* Pass data to keyboard buffer parser */
 			ir_mce_kbd_process_keyboard_data(data->idev, scancode);
+			lsc.rc_proto = RC_PROTO_MCIR2_KBD;
 			break;
 		case MCIR2_MOUSE_NBITS:
 			scancode = data->body & 0x1fffff;
 			IR_dprintk(1, "mouse data 0x%06x\n", scancode);
 			/* Pass data to mouse buffer parser */
 			ir_mce_kbd_process_mouse_data(data->idev, scancode);
+			lsc.rc_proto = RC_PROTO_MCIR2_MSE;
 			break;
 		default:
 			IR_dprintk(1, "not keyboard or mouse data\n");
 			goto out;
 		}
 
+		lsc.scancode = scancode;
+		ir_lirc_scancode_event(dev, &lsc);
 		data->state = STATE_INACTIVE;
 		input_event(data->idev, EV_MSC, MSC_SCAN, scancode);
 		input_sync(data->idev);
@@ -357,9 +362,6 @@ static int ir_mce_kbd_register(struct rc_dev *dev)
 	struct mce_kbd_dec *mce_kbd = &dev->raw->mce_kbd;
 	struct input_dev *idev;
 	int i, ret;
-
-	if (dev->driver_type == RC_DRIVER_IR_RAW_TX)
-		return 0;
 
 	idev = input_allocate_device();
 	if (!idev)
@@ -414,9 +416,6 @@ static int ir_mce_kbd_unregister(struct rc_dev *dev)
 {
 	struct mce_kbd_dec *mce_kbd = &dev->raw->mce_kbd;
 	struct input_dev *idev = mce_kbd->idev;
-
-	if (dev->driver_type == RC_DRIVER_IR_RAW_TX)
-		return 0;
 
 	del_timer_sync(&mce_kbd->rx_timeout);
 	input_unregister_device(idev);
@@ -473,6 +472,7 @@ static struct ir_raw_handler mce_kbd_handler = {
 	.encode		= ir_mce_kbd_encode,
 	.raw_register	= ir_mce_kbd_register,
 	.raw_unregister	= ir_mce_kbd_unregister,
+	.carrier	= 36000,
 };
 
 static int __init ir_mce_kbd_decode_init(void)
