@@ -2027,33 +2027,6 @@ read_retry:
 }
 
 /**
- * nand_read - [MTD Interface] MTD compatibility function for nand_do_read_ecc
- * @mtd: MTD device structure
- * @from: offset to read from
- * @len: number of bytes to read
- * @retlen: pointer to variable to store the number of read bytes
- * @buf: the databuffer to put data
- *
- * Get hold of the chip and call nand_do_read.
- */
-static int nand_read(struct mtd_info *mtd, loff_t from, size_t len,
-		     size_t *retlen, uint8_t *buf)
-{
-	struct mtd_oob_ops ops;
-	int ret;
-
-	nand_get_device(mtd, FL_READING);
-	memset(&ops, 0, sizeof(ops));
-	ops.len = len;
-	ops.datbuf = buf;
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ret = nand_do_read_ops(mtd, from, &ops);
-	*retlen = ops.retlen;
-	nand_release_device(mtd);
-	return ret;
-}
-
-/**
  * nand_read_oob_std - [REPLACEABLE] the most common OOB data read function
  * @mtd: mtd info structure
  * @chip: nand chip info structure
@@ -2214,21 +2187,6 @@ static int nand_do_read_oob(struct mtd_info *mtd, loff_t from,
 
 	len = mtd_oobavail(mtd, ops);
 
-	if (unlikely(ops->ooboffs >= len)) {
-		pr_debug("%s: attempt to start read outside oob\n",
-				__func__);
-		return -EINVAL;
-	}
-
-	/* Do not allow reads past end of device */
-	if (unlikely(from >= mtd->size ||
-		     ops->ooboffs + readlen > ((mtd->size >> chip->page_shift) -
-					(from >> chip->page_shift)) * len)) {
-		pr_debug("%s: attempt to read beyond end of device\n",
-				__func__);
-		return -EINVAL;
-	}
-
 	chipnr = (int)(from >> chip->chip_shift);
 	chip->select_chip(mtd, chipnr);
 
@@ -2298,13 +2256,6 @@ static int nand_read_oob(struct mtd_info *mtd, loff_t from,
 	int ret;
 
 	ops->retlen = 0;
-
-	/* Do not allow reads past end of device */
-	if (ops->datbuf && (from + ops->len) > mtd->size) {
-		pr_debug("%s: attempt to read beyond end of device\n",
-				__func__);
-		return -EINVAL;
-	}
 
 	if (ops->mode != MTD_OPS_PLACE_OOB &&
 	    ops->mode != MTD_OPS_AUTO_OOB &&
@@ -2822,33 +2773,6 @@ static int panic_nand_write(struct mtd_info *mtd, loff_t to, size_t len,
 }
 
 /**
- * nand_write - [MTD Interface] NAND write with ECC
- * @mtd: MTD device structure
- * @to: offset to write to
- * @len: number of bytes to write
- * @retlen: pointer to variable to store the number of written bytes
- * @buf: the data to write
- *
- * NAND write with ECC.
- */
-static int nand_write(struct mtd_info *mtd, loff_t to, size_t len,
-			  size_t *retlen, const uint8_t *buf)
-{
-	struct mtd_oob_ops ops;
-	int ret;
-
-	nand_get_device(mtd, FL_WRITING);
-	memset(&ops, 0, sizeof(ops));
-	ops.len = len;
-	ops.datbuf = (uint8_t *)buf;
-	ops.mode = MTD_OPS_PLACE_OOB;
-	ret = nand_do_write_ops(mtd, to, &ops);
-	*retlen = ops.retlen;
-	nand_release_device(mtd);
-	return ret;
-}
-
-/**
  * nand_do_write_oob - [MTD Interface] NAND write out-of-band
  * @mtd: MTD device structure
  * @to: offset to write to
@@ -2870,22 +2794,6 @@ static int nand_do_write_oob(struct mtd_info *mtd, loff_t to,
 	/* Do not allow write past end of page */
 	if ((ops->ooboffs + ops->ooblen) > len) {
 		pr_debug("%s: attempt to write past end of page\n",
-				__func__);
-		return -EINVAL;
-	}
-
-	if (unlikely(ops->ooboffs >= len)) {
-		pr_debug("%s: attempt to start write outside oob\n",
-				__func__);
-		return -EINVAL;
-	}
-
-	/* Do not allow write past end of device */
-	if (unlikely(to >= mtd->size ||
-		     ops->ooboffs + ops->ooblen >
-			((mtd->size >> chip->page_shift) -
-			 (to >> chip->page_shift)) * len)) {
-		pr_debug("%s: attempt to write beyond end of device\n",
 				__func__);
 		return -EINVAL;
 	}
@@ -2944,13 +2852,6 @@ static int nand_write_oob(struct mtd_info *mtd, loff_t to,
 	int ret = -ENOTSUPP;
 
 	ops->retlen = 0;
-
-	/* Do not allow writes past end of device */
-	if (ops->datbuf && (to + ops->len) > mtd->size) {
-		pr_debug("%s: attempt to write beyond end of device\n",
-				__func__);
-		return -EINVAL;
-	}
 
 	nand_get_device(mtd, FL_WRITING);
 
@@ -4917,8 +4818,6 @@ int nand_scan_tail(struct mtd_info *mtd)
 	mtd->_erase = nand_erase;
 	mtd->_point = NULL;
 	mtd->_unpoint = NULL;
-	mtd->_read = nand_read;
-	mtd->_write = nand_write;
 	mtd->_panic_write = panic_nand_write;
 	mtd->_read_oob = nand_read_oob;
 	mtd->_write_oob = nand_write_oob;
