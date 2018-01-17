@@ -241,6 +241,12 @@
 				reg = <0x14000 0x60>;
 			};
 
+			avs: syscon@11500 {
+				compatible = "marvell,armada-3700-avs",
+					     "syscon";
+				reg = <0x11500 0x40>;
+			};
+
 			pinctrl_sb: pinctrl@18800 {
 				compatible = "marvell,armada3710-sb-pinctrl",
 					     "syscon", "simple-mfd";
