@@ -2831,7 +2831,6 @@ static noinline void kvmppc_run_core(struct kvmppc_vcore *vc)
 		 */
 		if (!thr0_done)
 			kvmppc_start_thread(NULL, pvc);
-		thr += pvc->num_threads;
 	}
 
 	/*
@@ -3176,17 +3175,8 @@ static int kvmppc_run_vcpu(struct kvm_run *kvm_run, struct kvm_vcpu *vcpu)
 	 * this thread straight away and have it join in.
 	 */
 	if (!signal_pending(current)) {
-		if (vc->vcore_state == VCORE_PIGGYBACK) {
-			if (spin_trylock(&vc->lock)) {
-				if (vc->vcore_state == VCORE_RUNNING &&
-				    !VCORE_IS_EXITING(vc)) {
-					kvmppc_create_dtl_entry(vcpu, vc);
-					kvmppc_start_thread(vcpu, vc);
-					trace_kvm_guest_enter(vcpu);
-				}
-				spin_unlock(&vc->lock);
-			}
-		} else if (vc->vcore_state == VCORE_RUNNING &&
+		if ((vc->vcore_state == VCORE_PIGGYBACK ||
+		     vc->vcore_state == VCORE_RUNNING) &&
 			   !VCORE_IS_EXITING(vc)) {
 			kvmppc_create_dtl_entry(vcpu, vc);
 			kvmppc_start_thread(vcpu, vc);
