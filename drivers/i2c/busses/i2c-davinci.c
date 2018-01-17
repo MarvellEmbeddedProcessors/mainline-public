@@ -33,7 +33,7 @@
 #include <linux/io.h>
 #include <linux/slab.h>
 #include <linux/cpufreq.h>
-#include <linux/gpio.h>
+#include <linux/gpio/consumer.h>
 #include <linux/of_device.h>
 #include <linux/platform_data/i2c-davinci.h>
 #include <linux/pm_runtime.h>
@@ -294,7 +294,7 @@ static int i2c_davinci_init(struct davinci_i2c_dev *dev)
 }
 
 /*
- * This routine does i2c bus recovery by using i2c_generic_gpio_recovery
+ * This routine does i2c bus recovery by using i2c_generic_scl_recovery
  * which is provided by I2C Bus recovery infrastructure.
  */
 static void davinci_i2c_prepare_recovery(struct i2c_adapter *adap)
@@ -316,7 +316,7 @@ static void davinci_i2c_unprepare_recovery(struct i2c_adapter *adap)
 }
 
 static struct i2c_bus_recovery_info davinci_i2c_gpio_recovery_info = {
-	.recover_bus = i2c_generic_gpio_recovery,
+	.recover_bus = i2c_generic_scl_recovery,
 	.prepare_recovery = davinci_i2c_prepare_recovery,
 	.unprepare_recovery = davinci_i2c_unprepare_recovery,
 };
@@ -769,6 +769,7 @@ static int davinci_i2c_probe(struct platform_device *pdev)
 	struct davinci_i2c_dev *dev;
 	struct i2c_adapter *adap;
 	struct resource *mem;
+	struct i2c_bus_recovery_info *rinfo;
 	int r, irq;
 
 	irq = platform_get_irq(pdev, 0);
@@ -868,10 +869,20 @@ static int davinci_i2c_probe(struct platform_device *pdev)
 
 	if (dev->pdata->has_pfunc)
 		adap->bus_recovery_info = &davinci_i2c_scl_recovery_info;
-	else if (dev->pdata->scl_pin) {
-		adap->bus_recovery_info = &davinci_i2c_gpio_recovery_info;
-		adap->bus_recovery_info->scl_gpio = dev->pdata->scl_pin;
-		adap->bus_recovery_info->sda_gpio = dev->pdata->sda_pin;
+	else if (dev->pdata->gpio_recovery) {
+		rinfo =  &davinci_i2c_gpio_recovery_info;
+		adap->bus_recovery_info = rinfo;
+		rinfo->scl_gpiod = devm_gpiod_get(&pdev->dev, "scl",
+						  GPIOD_OUT_HIGH_OPEN_DRAIN);
+		if (IS_ERR(rinfo->scl_gpiod)) {
+			r = PTR_ERR(rinfo->scl_gpiod);
+			goto err_unuse_clocks;
+		}
+		rinfo->sda_gpiod = devm_gpiod_get(&pdev->dev, "sda", GPIOD_IN);
+		if (IS_ERR(rinfo->sda_gpiod)) {
+			r = PTR_ERR(rinfo->sda_gpiod);
+			goto err_unuse_clocks;
+		}
 	}
 
 	adap->nr = pdev->id;
