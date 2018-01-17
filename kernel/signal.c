@@ -549,6 +549,7 @@ still_pending:
 		 * a fast-pathed signal or we must have been
 		 * out of queue space.  So zero out the info.
 		 */
+		clear_siginfo(info);
 		info->si_signo = sig;
 		info->si_errno = 0;
 		info->si_code = SI_USER;
@@ -1043,6 +1044,7 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 		list_add_tail(&q->list, &pending->list);
 		switch ((unsigned long) info) {
 		case (unsigned long) SEND_SIG_NOINFO:
+			clear_siginfo(&q->info);
 			q->info.si_signo = sig;
 			q->info.si_errno = 0;
 			q->info.si_code = SI_USER;
@@ -1051,6 +1053,7 @@ static int __send_signal(int sig, struct siginfo *info, struct task_struct *t,
 			q->info.si_uid = from_kuid_munged(current_user_ns(), current_uid());
 			break;
 		case (unsigned long) SEND_SIG_PRIV:
+			clear_siginfo(&q->info);
 			q->info.si_signo = sig;
 			q->info.si_errno = 0;
 			q->info.si_code = SI_KERNEL;
@@ -1623,6 +1626,7 @@ bool do_notify_parent(struct task_struct *tsk, int sig)
 			sig = SIGCHLD;
 	}
 
+	clear_siginfo(&info);
 	info.si_signo = sig;
 	info.si_errno = 0;
 	/*
@@ -1717,6 +1721,7 @@ static void do_notify_parent_cldstop(struct task_struct *tsk,
 		parent = tsk->real_parent;
 	}
 
+	clear_siginfo(&info);
 	info.si_signo = SIGCHLD;
 	info.si_errno = 0;
 	/*
@@ -1929,7 +1934,7 @@ static void ptrace_do_notify(int signr, int exit_code, int why)
 {
 	siginfo_t info;
 
-	memset(&info, 0, sizeof info);
+	clear_siginfo(&info);
 	info.si_signo = signr;
 	info.si_code = exit_code;
 	info.si_pid = task_pid_vnr(current);
@@ -2136,6 +2141,7 @@ static int ptrace_signal(int signr, siginfo_t *info)
 	 * have updated *info via PTRACE_SETSIGINFO.
 	 */
 	if (signr != info->si_signo) {
+		clear_siginfo(info);
 		info->si_signo = signr;
 		info->si_errno = 0;
 		info->si_code = SI_USER;
@@ -2712,6 +2718,10 @@ enum siginfo_layout siginfo_layout(int sig, int si_code)
 		if ((sig == SIGFPE) && (si_code == FPE_FIXME))
 			layout = SIL_FAULT;
 #endif
+#ifdef BUS_FIXME
+		if ((sig == SIGBUS) && (si_code == BUS_FIXME))
+			layout = SIL_FAULT;
+#endif
 	}
 	return layout;
 }
@@ -2937,6 +2947,7 @@ SYSCALL_DEFINE2(kill, pid_t, pid, int, sig)
 {
 	struct siginfo info;
 
+	clear_siginfo(&info);
 	info.si_signo = sig;
 	info.si_errno = 0;
 	info.si_code = SI_USER;
@@ -3684,26 +3695,25 @@ void __init signals_init(void)
 #ifdef CONFIG_KGDB_KDB
 #include <linux/kdb.h>
 /*
- * kdb_send_sig_info - Allows kdb to send signals without exposing
+ * kdb_send_sig - Allows kdb to send signals without exposing
  * signal internals.  This function checks if the required locks are
  * available before calling the main signal code, to avoid kdb
  * deadlocks.
  */
-void
-kdb_send_sig_info(struct task_struct *t, struct siginfo *info)
+void kdb_send_sig(struct task_struct *t, int sig)
 {
 	static struct task_struct *kdb_prev_t;
-	int sig, new_t;
+	int new_t, ret;
 	if (!spin_trylock(&t->sighand->siglock)) {
 		kdb_printf("Can't do kill command now.\n"
 			   "The sigmask lock is held somewhere else in "
 			   "kernel, try again later\n");
 		return;
 	}
-	spin_unlock(&t->sighand->siglock);
 	new_t = kdb_prev_t != t;
 	kdb_prev_t = t;
 	if (t->state != TASK_RUNNING && new_t) {
+		spin_unlock(&t->sighand->siglock);
 		kdb_printf("Process is not RUNNING, sending a signal from "
 			   "kdb risks deadlock\n"
 			   "on the run queue locks. "
@@ -3712,8 +3722,9 @@ kdb_send_sig_info(struct task_struct *t, struct siginfo *info)
 			   "the deadlock.\n");
 		return;
 	}
-	sig = info->si_signo;
-	if (send_sig_info(sig, info, t))
+	ret = send_signal(sig, SEND_SIG_PRIV, t, false);
+	spin_unlock(&t->sighand->siglock);
+	if (ret)
 		kdb_printf("Fail to deliver Signal %d to process %d.\n",
 			   sig, t->pid);
 	else
