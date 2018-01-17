@@ -1,16 +1,7 @@
+// SPDX-License-Identifier: GPL-2.0+
 /*
  * Copyright 2003 Digi International (www.digi.com)
  *	Scott H Kilau <Scott_Kilau at digi dot com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED; without even the
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- * PURPOSE.  See the GNU General Public License for more details.
  */
 
 /*
@@ -35,7 +26,6 @@
 #include "dgnc_tty.h"
 #include "dgnc_neo.h"
 #include "dgnc_cls.h"
-#include "dgnc_utils.h"
 
 /* Default transparent print information. */
 
@@ -1238,7 +1228,7 @@ static void dgnc_tty_close(struct tty_struct *tty, struct file *file)
 			if (ch->ch_close_delay) {
 				spin_unlock_irqrestore(&ch->ch_lock,
 						       flags);
-				dgnc_ms_sleep(ch->ch_close_delay);
+				msleep_interruptible(ch->ch_close_delay);
 				spin_lock_irqsave(&ch->ch_lock, flags);
 			}
 		}

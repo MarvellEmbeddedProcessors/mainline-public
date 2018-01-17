@@ -88,6 +88,8 @@ void dpaa2_io_down(struct dpaa2_io *d);
 
 irqreturn_t dpaa2_io_irq(struct dpaa2_io *obj);
 
+struct dpaa2_io *dpaa2_io_service_select(int cpu);
+
 /**
  * struct dpaa2_io_notification_ctx - The DPIO notification context structure
  * @cb:           The callback to be invoked when the notification arrives
@@ -120,13 +122,9 @@ void dpaa2_io_service_deregister(struct dpaa2_io *service,
 int dpaa2_io_service_rearm(struct dpaa2_io *service,
 			   struct dpaa2_io_notification_ctx *ctx);
 
-int dpaa2_io_service_pull_fq(struct dpaa2_io *d, u32 fqid,
-			     struct dpaa2_io_store *s);
 int dpaa2_io_service_pull_channel(struct dpaa2_io *d, u32 channelid,
 				  struct dpaa2_io_store *s);
 
-int dpaa2_io_service_enqueue_fq(struct dpaa2_io *d, u32 fqid,
-				const struct dpaa2_fd *fd);
 int dpaa2_io_service_enqueue_qd(struct dpaa2_io *d, u32 qdid, u8 prio,
 				u16 qdbin, const struct dpaa2_fd *fd);
 int dpaa2_io_service_release(struct dpaa2_io *d, u32 bpid,

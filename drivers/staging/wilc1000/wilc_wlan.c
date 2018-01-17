@@ -1,19 +1,20 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/completion.h>
 #include "wilc_wlan_if.h"
 #include "wilc_wlan.h"
 #include "wilc_wfi_netdevice.h"
 #include "wilc_wlan_cfg.h"
 
-static CHIP_PS_STATE_T chip_ps_state = CHIP_WAKEDUP;
+static enum chip_ps_states chip_ps_state = CHIP_WAKEDUP;
 
-static inline void acquire_bus(struct wilc *wilc, BUS_ACQUIRE_T acquire)
+static inline void acquire_bus(struct wilc *wilc, enum bus_acquire acquire)
 {
 	mutex_lock(&wilc->hif_cs);
 	if (acquire == ACQUIRE_AND_WAKEUP)
 		chip_wakeup(wilc);
 }
 
-static inline void release_bus(struct wilc *wilc, BUS_RELEASE_T release)
+static inline void release_bus(struct wilc *wilc, enum bus_release release)
 {
 	if (release == RELEASE_ALLOW_SLEEP)
 		chip_allow_sleep(wilc);

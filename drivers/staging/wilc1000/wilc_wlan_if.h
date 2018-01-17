@@ -75,7 +75,7 @@ typedef void (*wilc_tx_complete_func_t)(void *, int);
 #define MAX_SSID_LEN            33
 #define MAX_RATES_SUPPORTED     12
 
-typedef enum {
+enum {
 	SUPP_RATES_IE		= 1,
 	EXT_SUPP_RATES_IE	= 50,
 	HT_CAPABILITY_IE	= 45,
@@ -83,15 +83,15 @@ typedef enum {
 	WPA_IE			= 221,
 	WMM_IE			= 221,
 	P2P_IE			= 221,
-} BEACON_IE;
+};
 
-typedef enum {
+enum bss_types {
 	INFRASTRUCTURE		= 0,
 	INDEPENDENT,
 	AP,
-} BSSTYPE_T;
+};
 
-typedef enum {
+enum {
 	RATE_AUTO		= 0,
 	RATE_1MB		= 1,
 	RATE_2MB		= 2,
@@ -105,14 +105,14 @@ typedef enum {
 	RATE_26MB		= 36,
 	RATE_48MB		= 48,
 	RATE_54MB		= 54
-} TX_RATE_T;
+};
 
-typedef enum {
+enum {
 	B_ONLY_MODE		= 0,    /* 1, 2 M, otherwise 5, 11 M */
 	G_ONLY_MODE,			/* 6,12,24 otherwise 9,18,36,48,54 */
 	G_MIXED_11B_1_MODE,		/* 1,2,5.5,11 otherwise all on */
 	G_MIXED_11B_2_MODE,		/* 1,2,5,11,6,12,24 otherwise all on */
-} G_OPERATING_MODE_T;
+};
 
 typedef enum {
 	G_SHORT_PREAMBLE	= 0,	/* Short Preamble */
@@ -137,21 +137,21 @@ typedef enum {
 	MAX_PSPOLL_PS		= 4
 } USER_PS_MODE_T;
 
-typedef enum {
+enum chip_ps_states {
 	CHIP_WAKEDUP		= 0,
 	CHIP_SLEEPING_AUTO      = 1,
 	CHIP_SLEEPING_MANUAL	= 2
-} CHIP_PS_STATE_T;
+};
 
-typedef enum {
+enum bus_acquire {
 	ACQUIRE_ONLY            = 0,
 	ACQUIRE_AND_WAKEUP	= 1,
-} BUS_ACQUIRE_T;
+};
 
-typedef enum {
+enum bus_release {
 	RELEASE_ONLY		= 0,
 	RELEASE_ALLOW_SLEEP	= 1,
-} BUS_RELEASE_T;
+};
 
 typedef enum {
 	NO_SECURITY		= 0,

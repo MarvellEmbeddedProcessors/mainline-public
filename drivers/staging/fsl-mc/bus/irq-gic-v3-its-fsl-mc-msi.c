@@ -15,7 +15,7 @@
 #include <linux/msi.h>
 #include <linux/of.h>
 #include <linux/of_irq.h>
-#include "fsl-mc-private.h"
+#include "../include/mc.h"
 
 static struct irq_chip its_msi_irq_chip = {
 	.name = "ITS-fMSI",
@@ -32,11 +32,11 @@ static int its_fsl_mc_msi_prepare(struct irq_domain *msi_domain,
 	struct fsl_mc_device *mc_bus_dev;
 	struct msi_domain_info *msi_info;
 
-	if (WARN_ON(!dev_is_fsl_mc(dev)))
+	if (!dev_is_fsl_mc(dev))
 		return -EINVAL;
 
 	mc_bus_dev = to_fsl_mc_device(dev);
-	if (WARN_ON(!(mc_bus_dev->flags & FSL_MC_IS_DPRC)))
+	if (!(mc_bus_dev->flags & FSL_MC_IS_DPRC))
 		return -EINVAL;
 
 	/*
@@ -93,30 +93,10 @@ int __init its_fsl_mc_msi_init(void)
 			continue;
 		}
 
-		WARN_ON(mc_msi_domain->host_data !=
-			&its_fsl_mc_msi_domain_info);
-
 		pr_info("fsl-mc MSI: %pOF domain created\n", np);
 	}
 
 	return 0;
 }
 
-void its_fsl_mc_msi_cleanup(void)
-{
-	struct device_node *np;
-
-	for (np = of_find_matching_node(NULL, its_device_id); np;
-	     np = of_find_matching_node(np, its_device_id)) {
-		struct irq_domain *mc_msi_domain = irq_find_matching_host(
-							np,
-							DOMAIN_BUS_FSL_MC_MSI);
-
-		if (!of_property_read_bool(np, "msi-controller"))
-			continue;
-
-		if (mc_msi_domain &&
-		    mc_msi_domain->host_data == &its_fsl_mc_msi_domain_info)
-			irq_domain_remove(mc_msi_domain);
-	}
-}
+early_initcall(its_fsl_mc_msi_init);

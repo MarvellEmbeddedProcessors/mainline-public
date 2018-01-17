@@ -1,16 +1,7 @@
+/* SPDX-License-Identifier: GPL-2.0+ */
 /*
  * Copyright 2003 Digi International (www.digi.com)
  *      Scott H Kilau <Scott_Kilau at digi dot com>
- *
- * This program is free software; you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation; either version 2, or (at your option)
- * any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY, EXPRESS OR IMPLIED; without even the
- * implied warranty of MERCHANTABILITY or FITNESS FOR A PARTICULAR
- * PURPOSE.  See the GNU General Public License for more details.
  */
 
 #ifndef _DGNC_DRIVER_H
@@ -88,12 +79,12 @@ struct board_ops {
 	void (*flush_uart_read)(struct channel_t *ch);
 	void (*disable_receiver)(struct channel_t *ch);
 	void (*enable_receiver)(struct channel_t *ch);
-	void (*send_break)(struct channel_t *ch, int);
+	void (*send_break)(struct channel_t *ch, int msec);
 	void (*send_start_character)(struct channel_t *ch);
 	void (*send_stop_character)(struct channel_t *ch);
 	void (*copy_data_from_queue_to_uart)(struct channel_t *ch);
 	uint (*get_uart_bytes_left)(struct channel_t *ch);
-	void (*send_immediate_char)(struct channel_t *ch, unsigned char);
+	void (*send_immediate_char)(struct channel_t *ch, unsigned char c);
 };
 
 /* Device flag definitions for bd_flags. */
@@ -381,11 +372,6 @@ struct channel_t {
 	ulong		ch_xoff_sends;
 };
 
-extern uint		dgnc_major;		/* Our driver/mgmt major */
-extern int		dgnc_poll_tick;		/* Poll interval - 20 ms */
-extern spinlock_t	dgnc_global_lock;	/* Driver global spinlock */
-extern spinlock_t	dgnc_poll_lock;		/* Poll scheduling lock */
-extern uint		dgnc_num_boards;	/* Total number of boards */
 extern struct dgnc_board *dgnc_board[MAXBOARDS];/* Array of boards */
 
 #endif	/* _DGNC_DRIVER_H */
