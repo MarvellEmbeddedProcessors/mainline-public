@@ -36,10 +36,10 @@
 #include "dell-smbios.h"
 
 struct quirk_entry {
-	u8 touchpad_led;
-	u8 kbd_led_levels_off_1;
+	bool touchpad_led;
+	bool kbd_led_levels_off_1;
 
-	int needs_kbd_timeouts;
+	bool needs_kbd_timeouts;
 	/*
 	 * Ordered list of timeouts expressed in seconds.
 	 * The list must end with -1
@@ -50,7 +50,7 @@ struct quirk_entry {
 static struct quirk_entry *quirks;
 
 static struct quirk_entry quirk_dell_vostro_v130 = {
-	.touchpad_led = 1,
+	.touchpad_led = true,
 };
 
 static int __init dmi_matched(const struct dmi_system_id *dmi)
@@ -64,12 +64,12 @@ static int __init dmi_matched(const struct dmi_system_id *dmi)
  * is used then BIOS silently set timeout to 0 without any error message.
  */
 static struct quirk_entry quirk_dell_xps13_9333 = {
-	.needs_kbd_timeouts = 1,
+	.needs_kbd_timeouts = true,
 	.kbd_timeouts = { 0, 5, 15, 60, 5 * 60, 15 * 60, -1 },
 };
 
 static struct quirk_entry quirk_dell_latitude_e6410 = {
-	.kbd_led_levels_off_1 = 1,
+	.kbd_led_levels_off_1 = true,
 };
 
 static struct platform_driver platform_driver = {
@@ -286,7 +286,7 @@ static const struct dmi_system_id dell_quirks[] __initconst = {
 	{ }
 };
 
-void dell_set_arguments(u32 arg0, u32 arg1, u32 arg2, u32 arg3)
+static void dell_set_arguments(u32 arg0, u32 arg1, u32 arg2, u32 arg3)
 {
 	memset(buffer, 0, sizeof(struct calling_interface_buffer));
 	buffer->input[0] = arg0;
@@ -295,7 +295,7 @@ void dell_set_arguments(u32 arg0, u32 arg1, u32 arg2, u32 arg3)
 	buffer->input[3] = arg3;
 }
 
-int dell_send_request(u16 class, u16 select)
+static int dell_send_request(u16 class, u16 select)
 {
 	int ret;
 
