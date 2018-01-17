@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * drivers/base/dd.c - The core device/driver interactions.
  *
@@ -13,8 +14,6 @@
  * Copyright (c) 2002-3 Open Source Development Labs
  * Copyright (c) 2007-2009 Greg Kroah-Hartman <gregkh@suse.de>
  * Copyright (c) 2007-2009 Novell Inc.
- *
- * This file is released under the GPLv2
  */
 
 #include <linux/device.h>
