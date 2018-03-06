@@ -216,6 +216,7 @@
 &cp0_eth0 {
 	status = "okay";
 	phy-mode = "10gbase-kr";
+	managed = "in-band-status";
 };
 
 &cp0_eth2 {
@@ -334,6 +335,7 @@
 &cp1_eth0 {
 	status = "okay";
 	phy-mode = "10gbase-kr";
+	managed = "in-band-status";
 };
 
 &cp1_eth1 {
