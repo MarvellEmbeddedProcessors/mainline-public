@@ -768,7 +768,8 @@ int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn,
 	/* Fixed links and 802.3z are handled without needing a PHY */
 	if (pl->link_an_mode == MLO_AN_FIXED ||
 	    (pl->link_an_mode == MLO_AN_INBAND &&
-	     phy_interface_mode_is_8023z(pl->link_interface)))
+	     (phy_interface_mode_is_8023z(pl->link_interface) ||
+	      pl->link_interface == PHY_INTERFACE_MODE_10GKR)))
 		return 0;
 
 	phy_node = of_parse_phandle(dn, "phy-handle", 0);
