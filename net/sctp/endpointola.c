@@ -73,13 +73,13 @@ static struct sctp_endpoint *sctp_endpoint_init(struct sctp_endpoint *ep,
 		 * variables.  There are arrays that we encode directly
 		 * into parameters to make the rest of the operations easier.
 		 */
-		auth_hmacs = kzalloc(sizeof(sctp_hmac_algo_param_t) +
-				sizeof(__u16) * SCTP_AUTH_NUM_HMACS, gfp);
+		auth_hmacs = kzalloc(sizeof(*auth_hmacs) +
+				     sizeof(__u16) * SCTP_AUTH_NUM_HMACS, gfp);
 		if (!auth_hmacs)
 			goto nomem;
 
-		auth_chunks = kzalloc(sizeof(sctp_chunks_param_t) +
-					SCTP_NUM_CHUNK_TYPES, gfp);
+		auth_chunks = kzalloc(sizeof(*auth_chunks) +
+				      SCTP_NUM_CHUNK_TYPES, gfp);
 		if (!auth_chunks)
 			goto nomem;
 
@@ -232,7 +232,7 @@ void sctp_endpoint_free(struct sctp_endpoint *ep)
 {
 	ep->base.dead = true;
 
-	ep->base.sk->sk_state = SCTP_SS_CLOSED;
+	inet_sk_set_state(ep->base.sk, SCTP_SS_CLOSED);
 
 	/* Unlink this endpoint, so we can't find it again! */
 	sctp_unhash_endpoint(ep);
@@ -382,8 +382,8 @@ static void sctp_endpoint_bh_rcv(struct work_struct *work)
 	struct sctp_transport *transport;
 	struct sctp_chunk *chunk;
 	struct sctp_inq *inqueue;
-	sctp_subtype_t subtype;
-	sctp_state_t state;
+	union sctp_subtype subtype;
+	enum sctp_state state;
 	int error = 0;
 	int first_time = 1;	/* is this the first time through the loop */
 

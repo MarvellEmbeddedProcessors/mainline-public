@@ -545,6 +545,7 @@ static int tw5864_fmt_vid_cap(struct file *file, void *priv,
 	switch (input->std) {
 	default:
 		WARN_ON_ONCE(1);
+		return -EINVAL;
 	case STD_NTSC:
 		f->fmt.pix.height = 480;
 		break;
@@ -729,7 +730,7 @@ static int tw5864_frameinterval_get(struct tw5864_input *input,
 		frameinterval->denominator = 25;
 		break;
 	default:
-	        dev_warn(&dev->pci->dev, "tw5864_frameinterval_get requested for unknown std %d\n",
+		dev_warn(&dev->pci->dev, "tw5864_frameinterval_get requested for unknown std %d\n",
 			 input->std);
 		return -EINVAL;
 	}

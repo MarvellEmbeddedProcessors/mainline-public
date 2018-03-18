@@ -793,7 +793,9 @@ static struct attribute *cxgb3_attrs[] = {
 	NULL
 };
 
-static struct attribute_group cxgb3_attr_group = {.attrs = cxgb3_attrs };
+static const struct attribute_group cxgb3_attr_group = {
+	.attrs = cxgb3_attrs,
+};
 
 static ssize_t tm_attr_show(struct device *d,
 			    char *buf, int sched)
@@ -880,7 +882,9 @@ static struct attribute *offload_attrs[] = {
 	NULL
 };
 
-static struct attribute_group offload_attr_group = {.attrs = offload_attrs };
+static const struct attribute_group offload_attr_group = {
+	.attrs = offload_attrs,
+};
 
 /*
  * Sends an sk_buff to an offload queue driver
@@ -3300,6 +3304,7 @@ static int init_one(struct pci_dev *pdev, const struct pci_device_id *ent)
 		netdev->ethtool_ops = &cxgb_ethtool_ops;
 		netdev->min_mtu = 81;
 		netdev->max_mtu = ETH_MAX_MTU;
+		netdev->dev_port = pi->port_id;
 	}
 
 	pci_set_drvdata(pdev, adapter);

@@ -161,6 +161,18 @@ enum qed_nvm_images {
 	QED_NVM_IMAGE_FCOE_CFG,
 };
 
+struct qed_link_eee_params {
+	u32 tx_lpi_timer;
+#define QED_EEE_1G_ADV		BIT(0)
+#define QED_EEE_10G_ADV		BIT(1)
+
+	/* Capabilities are represented using QED_EEE_*_ADV values */
+	u8 adv_caps;
+	u8 lp_adv_caps;
+	bool enable;
+	bool tx_lpi_enable;
+};
+
 enum qed_led_mode {
 	QED_LED_MODE_OFF,
 	QED_LED_MODE_ON,
@@ -172,8 +184,9 @@ enum qed_led_mode {
 
 #define DIRECT_REG_RD(reg_addr) readl((void __iomem *)(reg_addr))
 
-#define QED_COALESCE_MAX 0xFF
+#define QED_COALESCE_MAX 0x1FF
 #define QED_DEFAULT_RX_USECS 12
+#define QED_DEFAULT_TX_USECS 48
 
 /* forward */
 struct qed_dev;
@@ -231,16 +244,11 @@ struct qed_fcoe_pf_params {
 /* Most of the the parameters below are described in the FW iSCSI / TCP HSI */
 struct qed_iscsi_pf_params {
 	u64 glbl_q_params_addr;
-	u64 bdq_pbl_base_addr[2];
-	u32 max_cwnd;
+	u64 bdq_pbl_base_addr[3];
 	u16 cq_num_entries;
 	u16 cmdq_num_entries;
 	u32 two_msl_timer;
-	u16 dup_ack_threshold;
 	u16 tx_sws_timer;
-	u16 min_rto;
-	u16 min_rto_rt;
-	u16 max_rto;
 
 	/* The following parameters are used during HW-init
 	 * and these parameters need to be passed as arguments
@@ -251,8 +259,8 @@ struct qed_iscsi_pf_params {
 
 	/* The following parameters are used during protocol-init */
 	u16 half_way_close_timeout;
-	u16 bdq_xoff_threshold[2];
-	u16 bdq_xon_threshold[2];
+	u16 bdq_xoff_threshold[3];
+	u16 bdq_xon_threshold[3];
 	u16 cmdq_xoff_threshold;
 	u16 cmdq_xon_threshold;
 	u16 rq_buffer_size;
@@ -268,10 +276,11 @@ struct qed_iscsi_pf_params {
 	u8 gl_cmd_pi;
 	u8 debug_mode;
 	u8 ll2_ooo_queue_id;
-	u8 ooo_enable;
 
 	u8 is_target;
-	u8 bdq_pbl_num_entries[2];
+	u8 is_soc_en;
+	u8 soc_num_of_blocks_log;
+	u8 bdq_pbl_num_entries[3];
 };
 
 struct qed_rdma_pf_params {
@@ -303,16 +312,16 @@ enum qed_int_mode {
 };
 
 struct qed_sb_info {
-	struct status_block	*sb_virt;
-	dma_addr_t		sb_phys;
-	u32			sb_ack; /* Last given ack */
-	u16			igu_sb_id;
-	void __iomem		*igu_addr;
-	u8			flags;
-#define QED_SB_INFO_INIT        0x1
-#define QED_SB_INFO_SETUP       0x2
+	struct status_block_e4 *sb_virt;
+	dma_addr_t sb_phys;
+	u32 sb_ack; /* Last given ack */
+	u16 igu_sb_id;
+	void __iomem *igu_addr;
+	u8 flags;
+#define QED_SB_INFO_INIT	0x1
+#define QED_SB_INFO_SETUP	0x2
 
-	struct qed_dev		*cdev;
+	struct qed_dev *cdev;
 };
 
 enum qed_dev_type {
@@ -408,6 +417,7 @@ struct qed_link_params {
 #define QED_LINK_OVERRIDE_SPEED_FORCED_SPEED    BIT(2)
 #define QED_LINK_OVERRIDE_PAUSE_CONFIG          BIT(3)
 #define QED_LINK_OVERRIDE_LOOPBACK_MODE         BIT(4)
+#define QED_LINK_OVERRIDE_EEE_CONFIG            BIT(5)
 	u32	override_flags;
 	bool	autoneg;
 	u32	adv_speeds;
@@ -422,6 +432,7 @@ struct qed_link_params {
 #define QED_LINK_LOOPBACK_EXT                   BIT(3)
 #define QED_LINK_LOOPBACK_MAC                   BIT(4)
 	u32	loopback_mode;
+	struct qed_link_eee_params eee;
 };
 
 struct qed_link_output {
@@ -437,6 +448,12 @@ struct qed_link_output {
 	u8	port;                   /* In PORT defs */
 	bool	autoneg;
 	u32	pause_config;
+
+	/* EEE - capability & param */
+	bool eee_supported;
+	bool eee_active;
+	u8 sup_caps;
+	struct qed_link_eee_params eee;
 };
 
 struct qed_probe_params {
@@ -654,16 +671,6 @@ struct qed_common_ops {
 			     enum qed_nvm_images type, u8 *buf, u16 len);
 
 /**
- * @brief get_coalesce - Get coalesce parameters in usec
- *
- * @param cdev
- * @param rx_coal - Rx coalesce value in usec
- * @param tx_coal - Tx coalesce value in usec
- *
- */
-	void (*get_coalesce)(struct qed_dev *cdev, u16 *rx_coal, u16 *tx_coal);
-
-/**
  * @brief set_coalesce - Configure Rx coalesce value in usec
  *
  * @param cdev
@@ -674,8 +681,8 @@ struct qed_common_ops {
  *
  * @return 0 on success, error otherwise.
  */
-	int (*set_coalesce)(struct qed_dev *cdev, u16 rx_coal, u16 tx_coal,
-			    u16 qid, u16 sb_id);
+	int (*set_coalesce)(struct qed_dev *cdev,
+			    u16 rx_coal, u16 tx_coal, void *handle);
 
 /**
  * @brief set_led - Configure LED mode
@@ -928,7 +935,7 @@ static inline u16 qed_sb_update_sb_idx(struct qed_sb_info *sb_info)
 	u16 rc = 0;
 
 	prod = le32_to_cpu(sb_info->sb_virt->prod_index) &
-	       STATUS_BLOCK_PROD_INDEX_MASK;
+	       STATUS_BLOCK_E4_PROD_INDEX_MASK;
 	if (sb_info->sb_ack != prod) {
 		sb_info->sb_ack = prod;
 		rc |= QED_SB_IDX;

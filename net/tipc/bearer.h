@@ -131,6 +131,7 @@ struct tipc_media {
  * @name: bearer name (format = media:interface)
  * @media: ptr to media structure associated with bearer
  * @bcast_addr: media address used in broadcasting
+ * @pt: packet type for bearer
  * @rcu: rcu struct for tipc_bearer
  * @priority: default link priority for bearer
  * @window: default window size for bearer
@@ -151,6 +152,7 @@ struct tipc_bearer {
 	char name[TIPC_MAX_BEARER_NAME];
 	struct tipc_media *media;
 	struct tipc_media_addr bcast_addr;
+	struct packet_type pt;
 	struct rcu_head rcu;
 	u32 priority;
 	u32 window;
@@ -186,15 +188,19 @@ extern struct tipc_media udp_media_info;
 #endif
 
 int tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info);
+int __tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info);
+int __tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_dump(struct sk_buff *skb, struct netlink_callback *cb);
 int tipc_nl_bearer_get(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info);
+int __tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_bearer_add(struct sk_buff *skb, struct genl_info *info);
 
 int tipc_nl_media_dump(struct sk_buff *skb, struct netlink_callback *cb);
 int tipc_nl_media_get(struct sk_buff *skb, struct genl_info *info);
 int tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info);
+int __tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info);
 
 int tipc_media_set_priority(const char *name, u32 new_value);
 int tipc_media_set_window(const char *name, u32 new_value);
@@ -210,7 +216,6 @@ void tipc_bearer_remove_dest(struct net *net, u32 bearer_id, u32 dest);
 struct tipc_bearer *tipc_bearer_find(struct net *net, const char *name);
 int tipc_bearer_get_name(struct net *net, char *name, u32 bearer_id);
 struct tipc_media *tipc_media_find(const char *name);
-void tipc_bearer_reset_all(struct net *net);
 int tipc_bearer_setup(void);
 void tipc_bearer_cleanup(void);
 void tipc_bearer_stop(struct net *net);

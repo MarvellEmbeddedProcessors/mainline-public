@@ -338,11 +338,12 @@ static int vaddr_get_pfn(struct mm_struct *mm, unsigned long vaddr,
 {
 	struct page *page[1];
 	struct vm_area_struct *vma;
+	struct vm_area_struct *vmas[1];
 	int ret;
 
 	if (mm == current->mm) {
-		ret = get_user_pages_fast(vaddr, 1, !!(prot & IOMMU_WRITE),
-					  page);
+		ret = get_user_pages_longterm(vaddr, 1, !!(prot & IOMMU_WRITE),
+					      page, vmas);
 	} else {
 		unsigned int flags = 0;
 
@@ -351,7 +352,18 @@ static int vaddr_get_pfn(struct mm_struct *mm, unsigned long vaddr,
 
 		down_read(&mm->mmap_sem);
 		ret = get_user_pages_remote(NULL, mm, vaddr, 1, flags, page,
-					    NULL, NULL);
+					    vmas, NULL);
+		/*
+		 * The lifetime of a vaddr_get_pfn() page pin is
+		 * userspace-controlled. In the fs-dax case this could
+		 * lead to indefinite stalls in filesystem operations.
+		 * Disallow attempts to pin fs-dax pages via this
+		 * interface.
+		 */
+		if (ret > 0 && vma_is_fsdax(vmas[0])) {
+			ret = -EOPNOTSUPP;
+			put_page(page[0]);
+		}
 		up_read(&mm->mmap_sem);
 	}
 
@@ -767,6 +779,9 @@ static int vfio_dma_do_unmap(struct vfio_iommu *iommu,
 		return -EINVAL;
 	if (!unmap->size || unmap->size & mask)
 		return -EINVAL;
+	if (unmap->iova + unmap->size < unmap->iova ||
+	    unmap->size > SIZE_MAX)
+		return -EINVAL;
 
 	WARN_ON(mask & PAGE_MASK);
 again:
@@ -1169,13 +1184,21 @@ static bool vfio_iommu_has_sw_msi(struct iommu_group *group, phys_addr_t *base)
 	INIT_LIST_HEAD(&group_resv_regions);
 	iommu_get_group_resv_regions(group, &group_resv_regions);
 	list_for_each_entry(region, &group_resv_regions, list) {
+		/*
+		 * The presence of any 'real' MSI regions should take
+		 * precedence over the software-managed one if the
+		 * IOMMU driver happens to advertise both types.
+		 */
+		if (region->type == IOMMU_RESV_MSI) {
+			ret = false;
+			break;
+		}
+
 		if (region->type == IOMMU_RESV_SW_MSI) {
 			*base = region->start;
 			ret = true;
-			goto out;
 		}
 	}
-out:
 	list_for_each_entry_safe(region, next, &group_resv_regions, list)
 		kfree(region);
 	return ret;
@@ -1265,8 +1288,8 @@ static int vfio_iommu_type1_attach_group(void *iommu_data,
 	INIT_LIST_HEAD(&domain->group_list);
 	list_add(&group->next, &domain->group_list);
 
-	msi_remap = resv_msi ? irq_domain_check_msi_remap() :
-				iommu_capable(bus, IOMMU_CAP_INTR_REMAP);
+	msi_remap = irq_domain_check_msi_remap() ||
+		    iommu_capable(bus, IOMMU_CAP_INTR_REMAP);
 
 	if (!allow_unsafe_interrupts && !msi_remap) {
 		pr_warn("%s: No interrupt remapping support.  Use the module param \"allow_unsafe_interrupts\" to enable VFIO IOMMU support on this platform\n",

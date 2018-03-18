@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  cpuidle-powernv - idle state cpuidle driver.
  *  Adapted from drivers/cpuidle/cpuidle-pseries
@@ -74,6 +75,8 @@ static int snooze_loop(struct cpuidle_device *dev,
 	HMT_medium();
 	ppc64_runlatch_on();
 	clear_thread_flag(TIF_POLLING_NRFLAG);
+
+	local_irq_disable();
 
 	return index;
 }
@@ -235,6 +238,7 @@ static inline int validate_dt_prop_sizes(const char *prop1, int prop1_len,
 	return -1;
 }
 
+extern u32 pnv_get_supported_cpuidle_states(void);
 static int powernv_add_idle_states(void)
 {
 	struct device_node *power_mgt;
@@ -248,6 +252,8 @@ static int powernv_add_idle_states(void)
 	const char *names[CPUIDLE_STATE_MAX];
 	u32 has_stop_states = 0;
 	int i, rc;
+	u32 supported_flags = pnv_get_supported_cpuidle_states();
+
 
 	/* Currently we have snooze statically defined */
 
@@ -362,6 +368,13 @@ static int powernv_add_idle_states(void)
 	for (i = 0; i < dt_idle_states; i++) {
 		unsigned int exit_latency, target_residency;
 		bool stops_timebase = false;
+
+		/*
+		 * Skip the platform idle state whose flag isn't in
+		 * the supported_cpuidle_states flag mask.
+		 */
+		if ((flags[i] & supported_flags) != flags[i])
+			continue;
 		/*
 		 * If an idle state has exit latency beyond
 		 * POWERNV_THRESHOLD_LATENCY_NS then don't use it
@@ -373,9 +386,9 @@ static int powernv_add_idle_states(void)
 		 * Firmware passes residency and latency values in ns.
 		 * cpuidle expects it in us.
 		 */
-		exit_latency = latency_ns[i] / 1000;
+		exit_latency = DIV_ROUND_UP(latency_ns[i], 1000);
 		if (!rc)
-			target_residency = residency_ns[i] / 1000;
+			target_residency = DIV_ROUND_UP(residency_ns[i], 1000);
 		else
 			target_residency = 0;
 

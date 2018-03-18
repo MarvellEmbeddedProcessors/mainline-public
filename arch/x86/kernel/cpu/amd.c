@@ -119,7 +119,7 @@ static void init_amd_k6(struct cpuinfo_x86 *c)
 		return;
 	}
 
-	if (c->x86_model == 6 && c->x86_mask == 1) {
+	if (c->x86_model == 6 && c->x86_stepping == 1) {
 		const int K6_BUG_LOOP = 1000000;
 		int n;
 		void (*f_vide)(void);
@@ -149,7 +149,7 @@ static void init_amd_k6(struct cpuinfo_x86 *c)
 
 	/* K6 with old style WHCR */
 	if (c->x86_model < 8 ||
-	   (c->x86_model == 8 && c->x86_mask < 8)) {
+	   (c->x86_model == 8 && c->x86_stepping < 8)) {
 		/* We can only write allocate on the low 508Mb */
 		if (mbytes > 508)
 			mbytes = 508;
@@ -168,7 +168,7 @@ static void init_amd_k6(struct cpuinfo_x86 *c)
 		return;
 	}
 
-	if ((c->x86_model == 8 && c->x86_mask > 7) ||
+	if ((c->x86_model == 8 && c->x86_stepping > 7) ||
 	     c->x86_model == 9 || c->x86_model == 13) {
 		/* The more serious chips .. */
 
@@ -221,7 +221,7 @@ static void init_amd_k7(struct cpuinfo_x86 *c)
 	 * are more robust with CLK_CTL set to 200xxxxx instead of 600xxxxx
 	 * As per AMD technical note 27212 0.2
 	 */
-	if ((c->x86_model == 8 && c->x86_mask >= 1) || (c->x86_model > 8)) {
+	if ((c->x86_model == 8 && c->x86_stepping >= 1) || (c->x86_model > 8)) {
 		rdmsr(MSR_K7_CLK_CTL, l, h);
 		if ((l & 0xfff00000) != 0x20000000) {
 			pr_info("CPU: CLK_CTL MSR was %x. Reprogramming to %x\n",
@@ -241,12 +241,12 @@ static void init_amd_k7(struct cpuinfo_x86 *c)
 	 * but they are not certified as MP capable.
 	 */
 	/* Athlon 660/661 is valid. */
-	if ((c->x86_model == 6) && ((c->x86_mask == 0) ||
-	    (c->x86_mask == 1)))
+	if ((c->x86_model == 6) && ((c->x86_stepping == 0) ||
+	    (c->x86_stepping == 1)))
 		return;
 
 	/* Duron 670 is valid */
-	if ((c->x86_model == 7) && (c->x86_mask == 0))
+	if ((c->x86_model == 7) && (c->x86_stepping == 0))
 		return;
 
 	/*
@@ -256,8 +256,8 @@ static void init_amd_k7(struct cpuinfo_x86 *c)
 	 * See http://www.heise.de/newsticker/data/jow-18.10.01-000 for
 	 * more.
 	 */
-	if (((c->x86_model == 6) && (c->x86_mask >= 2)) ||
-	    ((c->x86_model == 7) && (c->x86_mask >= 1)) ||
+	if (((c->x86_model == 6) && (c->x86_stepping >= 2)) ||
+	    ((c->x86_model == 7) && (c->x86_stepping >= 1)) ||
 	     (c->x86_model > 7))
 		if (cpu_has(c, X86_FEATURE_MP))
 			return;
@@ -297,13 +297,29 @@ static int nearby_node(int apicid)
 }
 #endif
 
+#ifdef CONFIG_SMP
+/*
+ * Fix up cpu_core_id for pre-F17h systems to be in the
+ * [0 .. cores_per_node - 1] range. Not really needed but
+ * kept so as not to break existing setups.
+ */
+static void legacy_fixup_core_id(struct cpuinfo_x86 *c)
+{
+	u32 cus_per_node;
+
+	if (c->x86 >= 0x17)
+		return;
+
+	cus_per_node = c->x86_max_cores / nodes_per_socket;
+	c->cpu_core_id %= cus_per_node;
+}
+
 /*
  * Fixup core topology information for
  * (1) AMD multi-node processors
  *     Assumption: Number of cores in each internal node is the same.
  * (2) AMD processors supporting compute units
  */
-#ifdef CONFIG_SMP
 static void amd_get_topology(struct cpuinfo_x86 *c)
 {
 	u8 node_id;
@@ -354,15 +370,9 @@ static void amd_get_topology(struct cpuinfo_x86 *c)
 	} else
 		return;
 
-	/* fixup multi-node processor information */
 	if (nodes_per_socket > 1) {
-		u32 cus_per_node;
-
 		set_cpu_cap(c, X86_FEATURE_AMD_DCM);
-		cus_per_node = c->x86_max_cores / nodes_per_socket;
-
-		/* core id has to be in the [0 .. cores_per_node - 1] range */
-		c->cpu_core_id %= cus_per_node;
+		legacy_fixup_core_id(c);
 	}
 }
 #endif
@@ -546,9 +556,58 @@ static void bsp_init_amd(struct cpuinfo_x86 *c)
 	}
 }
 
+static void early_detect_mem_encrypt(struct cpuinfo_x86 *c)
+{
+	u64 msr;
+
+	/*
+	 * BIOS support is required for SME and SEV.
+	 *   For SME: If BIOS has enabled SME then adjust x86_phys_bits by
+	 *	      the SME physical address space reduction value.
+	 *	      If BIOS has not enabled SME then don't advertise the
+	 *	      SME feature (set in scattered.c).
+	 *   For SEV: If BIOS has not enabled SEV then don't advertise the
+	 *            SEV feature (set in scattered.c).
+	 *
+	 *   In all cases, since support for SME and SEV requires long mode,
+	 *   don't advertise the feature under CONFIG_X86_32.
+	 */
+	if (cpu_has(c, X86_FEATURE_SME) || cpu_has(c, X86_FEATURE_SEV)) {
+		/* Check if memory encryption is enabled */
+		rdmsrl(MSR_K8_SYSCFG, msr);
+		if (!(msr & MSR_K8_SYSCFG_MEM_ENCRYPT))
+			goto clear_all;
+
+		/*
+		 * Always adjust physical address bits. Even though this
+		 * will be a value above 32-bits this is still done for
+		 * CONFIG_X86_32 so that accurate values are reported.
+		 */
+		c->x86_phys_bits -= (cpuid_ebx(0x8000001f) >> 6) & 0x3f;
+
+		if (IS_ENABLED(CONFIG_X86_32))
+			goto clear_all;
+
+		rdmsrl(MSR_K7_HWCR, msr);
+		if (!(msr & MSR_K7_HWCR_SMMLOCK))
+			goto clear_sev;
+
+		return;
+
+clear_all:
+		clear_cpu_cap(c, X86_FEATURE_SME);
+clear_sev:
+		clear_cpu_cap(c, X86_FEATURE_SEV);
+	}
+}
+
 static void early_init_amd(struct cpuinfo_x86 *c)
 {
+	u32 dummy;
+
 	early_init_amd_mc(c);
+
+	rdmsr_safe(MSR_AMD64_PATCH_LEVEL, &c->microcode, &dummy);
 
 	/*
 	 * c->x86_power is 8000_0007 edx. Bit 8 is TSC runs at constant rate
@@ -569,7 +628,7 @@ static void early_init_amd(struct cpuinfo_x86 *c)
 	/*  Set MTRR capability flag if appropriate */
 	if (c->x86 == 5)
 		if (c->x86_model == 13 || c->x86_model == 9 ||
-		    (c->x86_model == 8 && c->x86_mask >= 8))
+		    (c->x86_model == 8 && c->x86_stepping >= 8))
 			set_cpu_cap(c, X86_FEATURE_K6_MTRR);
 #endif
 #if defined(CONFIG_X86_LOCAL_APIC) && defined(CONFIG_PCI)
@@ -612,6 +671,8 @@ static void early_init_amd(struct cpuinfo_x86 *c)
 	 */
 	if (cpu_has_amd_erratum(c, amd_erratum_400))
 		set_cpu_bug(c, X86_BUG_AMD_E400);
+
+	early_detect_mem_encrypt(c);
 }
 
 static void init_amd_k8(struct cpuinfo_x86 *c)
@@ -728,10 +789,18 @@ static void init_amd_bd(struct cpuinfo_x86 *c)
 	}
 }
 
+static void init_amd_zn(struct cpuinfo_x86 *c)
+{
+	/*
+	 * Fix erratum 1076: CPB feature bit not being set in CPUID. It affects
+	 * all up to and including B1.
+	 */
+	if (c->x86_model <= 1 && c->x86_stepping <= 1)
+		set_cpu_cap(c, X86_FEATURE_CPB);
+}
+
 static void init_amd(struct cpuinfo_x86 *c)
 {
-	u32 dummy;
-
 	early_init_amd(c);
 
 	/*
@@ -758,10 +827,14 @@ static void init_amd(struct cpuinfo_x86 *c)
 	case 0x10: init_amd_gh(c); break;
 	case 0x12: init_amd_ln(c); break;
 	case 0x15: init_amd_bd(c); break;
+	case 0x17: init_amd_zn(c); break;
 	}
 
-	/* Enable workaround for FXSAVE leak */
-	if (c->x86 >= 6)
+	/*
+	 * Enable workaround for FXSAVE leak on CPUs
+	 * without a XSaveErPtr feature
+	 */
+	if ((c->x86 >= 6) && (!cpu_has(c, X86_FEATURE_XSAVEERPTR)))
 		set_cpu_bug(c, X86_BUG_FXSAVE_LEAK);
 
 	cpu_detect_cache_sizes(c);
@@ -782,8 +855,32 @@ static void init_amd(struct cpuinfo_x86 *c)
 		set_cpu_cap(c, X86_FEATURE_K8);
 
 	if (cpu_has(c, X86_FEATURE_XMM2)) {
-		/* MFENCE stops RDTSC speculation */
-		set_cpu_cap(c, X86_FEATURE_MFENCE_RDTSC);
+		unsigned long long val;
+		int ret;
+
+		/*
+		 * A serializing LFENCE has less overhead than MFENCE, so
+		 * use it for execution serialization.  On families which
+		 * don't have that MSR, LFENCE is already serializing.
+		 * msr_set_bit() uses the safe accessors, too, even if the MSR
+		 * is not present.
+		 */
+		msr_set_bit(MSR_F10H_DECFG,
+			    MSR_F10H_DECFG_LFENCE_SERIALIZE_BIT);
+
+		/*
+		 * Verify that the MSR write was successful (could be running
+		 * under a hypervisor) and only then assume that LFENCE is
+		 * serializing.
+		 */
+		ret = rdmsrl_safe(MSR_F10H_DECFG, &val);
+		if (!ret && (val & MSR_F10H_DECFG_LFENCE_SERIALIZE)) {
+			/* A serializing LFENCE stops RDTSC speculation */
+			set_cpu_cap(c, X86_FEATURE_LFENCE_RDTSC);
+		} else {
+			/* MFENCE stops RDTSC speculation */
+			set_cpu_cap(c, X86_FEATURE_MFENCE_RDTSC);
+		}
 	}
 
 	/*
@@ -792,8 +889,6 @@ static void init_amd(struct cpuinfo_x86 *c)
 	 */
 	if (c->x86 > 0x11)
 		set_cpu_cap(c, X86_FEATURE_ARAT);
-
-	rdmsr_safe(MSR_AMD64_PATCH_LEVEL, &c->microcode, &dummy);
 
 	/* 3DNow or LM implies PREFETCHW */
 	if (!cpu_has(c, X86_FEATURE_3DNOWPREFETCH))
@@ -811,11 +906,11 @@ static unsigned int amd_size_cache(struct cpuinfo_x86 *c, unsigned int size)
 	/* AMD errata T13 (order #21922) */
 	if ((c->x86 == 6)) {
 		/* Duron Rev A0 */
-		if (c->x86_model == 3 && c->x86_mask == 0)
+		if (c->x86_model == 3 && c->x86_stepping == 0)
 			size = 64;
 		/* Tbird rev A1/A2 */
 		if (c->x86_model == 4 &&
-			(c->x86_mask == 0 || c->x86_mask == 1))
+			(c->x86_stepping == 0 || c->x86_stepping == 1))
 			size = 256;
 	}
 	return size;
@@ -952,7 +1047,7 @@ static bool cpu_has_amd_erratum(struct cpuinfo_x86 *cpu, const int *erratum)
 	}
 
 	/* OSVW unavailable or ID unknown, match family-model-stepping range */
-	ms = (cpu->x86_model << 4) | cpu->x86_mask;
+	ms = (cpu->x86_model << 4) | cpu->x86_stepping;
 	while ((range = *erratum++))
 		if ((cpu->x86 == AMD_MODEL_RANGE_FAMILY(range)) &&
 		    (ms >= AMD_MODEL_RANGE_START(range)) &&

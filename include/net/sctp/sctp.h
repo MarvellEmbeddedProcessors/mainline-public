@@ -94,8 +94,8 @@
 /*
  * sctp/protocol.c
  */
-int sctp_copy_local_addr_list(struct net *, struct sctp_bind_addr *,
-			      sctp_scope_t, gfp_t gfp, int flags);
+int sctp_copy_local_addr_list(struct net *net, struct sctp_bind_addr *addr,
+			      enum sctp_scope, gfp_t gfp, int flags);
 struct sctp_pf *sctp_get_pf_specific(sa_family_t family);
 int sctp_register_pf(struct sctp_pf *, sa_family_t);
 void sctp_addr_wq_mgmt(struct net *, struct sctp_sockaddr_entry *, int);
@@ -107,7 +107,7 @@ int sctp_backlog_rcv(struct sock *sk, struct sk_buff *skb);
 int sctp_inet_listen(struct socket *sock, int backlog);
 void sctp_write_space(struct sock *sk);
 void sctp_data_ready(struct sock *sk);
-unsigned int sctp_poll(struct file *file, struct socket *sock,
+__poll_t sctp_poll(struct file *file, struct socket *sock,
 		poll_table *wait);
 void sctp_sock_rfree(struct sk_buff *skb);
 void sctp_copy_sock(struct sock *newsk, struct sock *sk,
@@ -116,7 +116,7 @@ extern struct percpu_counter sctp_sockets_allocated;
 int sctp_asconf_mgmt(struct sctp_sock *, struct sctp_sockaddr_entry *);
 struct sk_buff *sctp_skb_recv_datagram(struct sock *, int, int, int *);
 
-int sctp_transport_walk_start(struct rhashtable_iter *iter);
+void sctp_transport_walk_start(struct rhashtable_iter *iter);
 void sctp_transport_walk_stop(struct rhashtable_iter *iter);
 struct sctp_transport *sctp_transport_get_next(struct net *net,
 			struct rhashtable_iter *iter);
@@ -127,7 +127,8 @@ int sctp_transport_lookup_process(int (*cb)(struct sctp_transport *, void *),
 				  const union sctp_addr *laddr,
 				  const union sctp_addr *paddr, void *p);
 int sctp_for_each_transport(int (*cb)(struct sctp_transport *, void *),
-			    struct net *net, int pos, void *p);
+			    int (*cb_done)(struct sctp_transport *, void *),
+			    struct net *net, int *pos, void *p);
 int sctp_for_each_endpoint(int (*cb)(struct sctp_endpoint *, void *), void *p);
 int sctp_get_sctp_info(struct sock *sk, struct sctp_association *asoc,
 		       struct sctp_info *info);
@@ -192,6 +193,11 @@ void sctp_remaddr_proc_exit(struct net *net);
  * sctp/offload.c
  */
 int sctp_offload_init(void);
+
+/*
+ * sctp/stream_sched.c
+ */
+void sctp_sched_ops_init(void);
 
 /*
  * sctp/stream.c
@@ -438,12 +444,13 @@ static inline int sctp_frag_point(const struct sctp_association *asoc, int pmtu)
 	int frag = pmtu;
 
 	frag -= sp->pf->af->net_header_len;
-	frag -= sizeof(struct sctphdr) + sizeof(struct sctp_data_chunk);
+	frag -= sizeof(struct sctphdr) + sctp_datachk_len(&asoc->stream);
 
 	if (asoc->user_frag)
 		frag = min_t(int, frag, asoc->user_frag);
 
-	frag = SCTP_TRUNC4(min_t(int, frag, SCTP_MAX_CHUNK_LEN));
+	frag = SCTP_TRUNC4(min_t(int, frag, SCTP_MAX_CHUNK_LEN -
+					    sctp_datachk_len(&asoc->stream)));
 
 	return frag;
 }
@@ -479,13 +486,13 @@ for (pos.v = chunk->member;\
 _sctp_walk_errors((err), (chunk_hdr), ntohs((chunk_hdr)->length))
 
 #define _sctp_walk_errors(err, chunk_hdr, end)\
-for (err = (sctp_errhdr_t *)((void *)chunk_hdr + \
+for (err = (struct sctp_errhdr *)((void *)chunk_hdr + \
 	    sizeof(struct sctp_chunkhdr));\
-     ((void *)err + offsetof(sctp_errhdr_t, length) + sizeof(err->length) <=\
+     ((void *)err + offsetof(struct sctp_errhdr, length) + sizeof(err->length) <=\
       (void *)chunk_hdr + end) &&\
      (void *)err <= (void *)chunk_hdr + end - ntohs(err->length) &&\
-     ntohs(err->length) >= sizeof(sctp_errhdr_t); \
-     err = (sctp_errhdr_t *)((void *)err + SCTP_PAD4(ntohs(err->length))))
+     ntohs(err->length) >= sizeof(struct sctp_errhdr); \
+     err = (struct sctp_errhdr *)((void *)err + SCTP_PAD4(ntohs(err->length))))
 
 #define sctp_walk_fwdtsn(pos, chunk)\
 _sctp_walk_fwdtsn((pos), (chunk), ntohs((chunk)->chunk_hdr->length) - sizeof(struct sctp_fwdtsn_chunk))
@@ -550,7 +557,8 @@ static inline int sctp_ep_hashfn(struct net *net, __u16 lport)
 
 /* Is a socket of this style? */
 #define sctp_style(sk, style) __sctp_style((sk), (SCTP_SOCKET_##style))
-static inline int __sctp_style(const struct sock *sk, sctp_socket_type_t style)
+static inline int __sctp_style(const struct sock *sk,
+			       enum sctp_socket_type style)
 {
 	return sctp_sk(sk)->type == style;
 }
@@ -558,14 +566,15 @@ static inline int __sctp_style(const struct sock *sk, sctp_socket_type_t style)
 /* Is the association in this state? */
 #define sctp_state(asoc, state) __sctp_state((asoc), (SCTP_STATE_##state))
 static inline int __sctp_state(const struct sctp_association *asoc,
-			       sctp_state_t state)
+			       enum sctp_state state)
 {
 	return asoc->state == state;
 }
 
 /* Is the socket in this state? */
 #define sctp_sstate(sk, state) __sctp_sstate((sk), (SCTP_SS_##state))
-static inline int __sctp_sstate(const struct sock *sk, sctp_sock_state_t state)
+static inline int __sctp_sstate(const struct sock *sk,
+				enum sctp_sock_state state)
 {
 	return sk->sk_state == state;
 }

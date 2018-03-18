@@ -106,7 +106,7 @@ static DEFINE_SPINLOCK(recent_lock);
 static DEFINE_MUTEX(recent_mutex);
 
 #ifdef CONFIG_PROC_FS
-static const struct file_operations recent_old_fops, recent_mt_fops;
+static const struct file_operations recent_mt_fops;
 #endif
 
 static u_int32_t hash_rnd __read_mostly;
@@ -342,8 +342,8 @@ static int recent_mt_check(const struct xt_mtchk_param *par,
 	net_get_random_once(&hash_rnd, sizeof(hash_rnd));
 
 	if (info->check_set & ~XT_RECENT_VALID_FLAGS) {
-		pr_info("Unsupported user space flags (%08x)\n",
-			info->check_set);
+		pr_info_ratelimited("Unsupported userspace flags (%08x)\n",
+				    info->check_set);
 		return -EINVAL;
 	}
 	if (hweight8(info->check_set &
@@ -357,8 +357,8 @@ static int recent_mt_check(const struct xt_mtchk_param *par,
 	if ((info->check_set & XT_RECENT_REAP) && !info->seconds)
 		return -EINVAL;
 	if (info->hit_count >= XT_RECENT_MAX_NSTAMPS) {
-		pr_info("hitcount (%u) is larger than allowed maximum (%u)\n",
-			info->hit_count, XT_RECENT_MAX_NSTAMPS - 1);
+		pr_info_ratelimited("hitcount (%u) is larger than allowed maximum (%u)\n",
+				    info->hit_count, XT_RECENT_MAX_NSTAMPS - 1);
 		return -EINVAL;
 	}
 	if (info->name[0] == '\0' ||
@@ -587,7 +587,7 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 		add = true;
 		break;
 	default:
-		pr_info("Need \"+ip\", \"-ip\" or \"/\"\n");
+		pr_info_ratelimited("Need \"+ip\", \"-ip\" or \"/\"\n");
 		return -EINVAL;
 	}
 
@@ -601,10 +601,8 @@ recent_mt_proc_write(struct file *file, const char __user *input,
 		succ   = in4_pton(c, size, (void *)&addr, '\n', NULL);
 	}
 
-	if (!succ) {
-		pr_info("illegal address written to procfs\n");
+	if (!succ)
 		return -EINVAL;
-	}
 
 	spin_lock_bh(&recent_lock);
 	e = recent_entry_lookup(t, &addr, family, 0);
@@ -689,6 +687,7 @@ static struct pernet_operations recent_net_ops = {
 	.exit	= recent_net_exit,
 	.id	= &recent_net_id,
 	.size	= sizeof(struct recent_net),
+	.async	= true,
 };
 
 static struct xt_match recent_mt_reg[] __read_mostly = {

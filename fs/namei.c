@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  *  linux/fs/namei.c
  *
@@ -390,20 +391,43 @@ static inline int do_inode_permission(struct inode *inode, int mask)
 }
 
 /**
- * __inode_permission - Check for access rights to a given inode
+ * sb_permission - Check superblock-level permissions
+ * @sb: Superblock of inode to check permission on
  * @inode: Inode to check permission on
  * @mask: Right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC)
  *
- * Check for read/write/execute permissions on an inode.
+ * Separate out file-system wide checks from inode-specific permission checks.
+ */
+static int sb_permission(struct super_block *sb, struct inode *inode, int mask)
+{
+	if (unlikely(mask & MAY_WRITE)) {
+		umode_t mode = inode->i_mode;
+
+		/* Nobody gets write access to a read-only fs. */
+		if (sb_rdonly(sb) && (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
+			return -EROFS;
+	}
+	return 0;
+}
+
+/**
+ * inode_permission - Check for access rights to a given inode
+ * @inode: Inode to check permission on
+ * @mask: Right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC)
+ *
+ * Check for read/write/execute permissions on an inode.  We use fs[ug]id for
+ * this, letting us set arbitrary permissions for filesystem access without
+ * changing the "normal" UIDs which are used for other things.
  *
  * When checking for MAY_APPEND, MAY_WRITE must also be set in @mask.
- *
- * This does not check for a read-only file system.  You probably want
- * inode_permission().
  */
-int __inode_permission(struct inode *inode, int mask)
+int inode_permission(struct inode *inode, int mask)
 {
 	int retval;
+
+	retval = sb_permission(inode->i_sb, inode, mask);
+	if (retval)
+		return retval;
 
 	if (unlikely(mask & MAY_WRITE)) {
 		/*
@@ -430,49 +454,6 @@ int __inode_permission(struct inode *inode, int mask)
 		return retval;
 
 	return security_inode_permission(inode, mask);
-}
-EXPORT_SYMBOL(__inode_permission);
-
-/**
- * sb_permission - Check superblock-level permissions
- * @sb: Superblock of inode to check permission on
- * @inode: Inode to check permission on
- * @mask: Right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC)
- *
- * Separate out file-system wide checks from inode-specific permission checks.
- */
-static int sb_permission(struct super_block *sb, struct inode *inode, int mask)
-{
-	if (unlikely(mask & MAY_WRITE)) {
-		umode_t mode = inode->i_mode;
-
-		/* Nobody gets write access to a read-only fs. */
-		if ((sb->s_flags & MS_RDONLY) &&
-		    (S_ISREG(mode) || S_ISDIR(mode) || S_ISLNK(mode)))
-			return -EROFS;
-	}
-	return 0;
-}
-
-/**
- * inode_permission - Check for access rights to a given inode
- * @inode: Inode to check permission on
- * @mask: Right to check for (%MAY_READ, %MAY_WRITE, %MAY_EXEC)
- *
- * Check for read/write/execute permissions on an inode.  We use fs[ug]id for
- * this, letting us set arbitrary permissions for filesystem access without
- * changing the "normal" UIDs which are used for other things.
- *
- * When checking for MAY_APPEND, MAY_WRITE must also be set in @mask.
- */
-int inode_permission(struct inode *inode, int mask)
-{
-	int retval;
-
-	retval = sb_permission(inode->i_sb, inode, mask);
-	if (retval)
-		return retval;
-	return __inode_permission(inode, mask);
 }
 EXPORT_SYMBOL(inode_permission);
 
@@ -1133,9 +1114,6 @@ static int follow_automount(struct path *path, struct nameidata *nd,
 	    path->dentry->d_inode)
 		return -EISDIR;
 
-	if (path->dentry->d_sb->s_user_ns != &init_user_ns)
-		return -EACCES;
-
 	nd->total_link_count++;
 	if (nd->total_link_count >= 40)
 		return -ELOOP;
@@ -1201,7 +1179,7 @@ static int follow_managed(struct path *path, struct nameidata *nd)
 	/* Given that we're not holding a lock here, we retain the value in a
 	 * local variable for each dentry as we look at it so that we don't see
 	 * the components of that value change under us */
-	while (managed = ACCESS_ONCE(path->dentry->d_flags),
+	while (managed = READ_ONCE(path->dentry->d_flags),
 	       managed &= DCACHE_MANAGED_DENTRY,
 	       unlikely(managed != 0)) {
 		/* Allow the filesystem to manage the transit without i_mutex
@@ -1386,7 +1364,7 @@ int follow_down(struct path *path)
 	unsigned managed;
 	int ret;
 
-	while (managed = ACCESS_ONCE(path->dentry->d_flags),
+	while (managed = READ_ONCE(path->dentry->d_flags),
 	       unlikely(managed & DCACHE_MANAGED_DENTRY)) {
 		/* Allow the filesystem to manage the transit without i_mutex
 		 * being held.
@@ -2898,6 +2876,27 @@ int vfs_create(struct inode *dir, struct dentry *dentry, umode_t mode,
 }
 EXPORT_SYMBOL(vfs_create);
 
+int vfs_mkobj(struct dentry *dentry, umode_t mode,
+		int (*f)(struct dentry *, umode_t, void *),
+		void *arg)
+{
+	struct inode *dir = dentry->d_parent->d_inode;
+	int error = may_create(dir, dentry);
+	if (error)
+		return error;
+
+	mode &= S_IALLUGO;
+	mode |= S_IFREG;
+	error = security_inode_create(dir, dentry, mode);
+	if (error)
+		return error;
+	error = f(dentry, mode, arg);
+	if (!error)
+		fsnotify_create(dir, dentry);
+	return error;
+}
+EXPORT_SYMBOL(vfs_mkobj);
+
 bool may_open_dev(const struct path *path)
 {
 	return !(path->mnt->mnt_flags & MNT_NODEV) &&
@@ -3450,7 +3449,7 @@ static int do_tmpfile(struct nameidata *nd, unsigned flags,
 		goto out;
 	child = vfs_tmpfile(path.dentry, op->mode, op->open_flag);
 	error = PTR_ERR(child);
-	if (unlikely(IS_ERR(child)))
+	if (IS_ERR(child))
 		goto out2;
 	dput(path.dentry);
 	path.dentry = child;
@@ -4001,10 +4000,9 @@ EXPORT_SYMBOL(vfs_unlink);
  * writeout happening, and we don't want to prevent access to the directory
  * while waiting on the I/O.
  */
-static long do_unlinkat(int dfd, const char __user *pathname)
+long do_unlinkat(int dfd, struct filename *name)
 {
 	int error;
-	struct filename *name;
 	struct dentry *dentry;
 	struct path path;
 	struct qstr last;
@@ -4013,8 +4011,7 @@ static long do_unlinkat(int dfd, const char __user *pathname)
 	struct inode *delegated_inode = NULL;
 	unsigned int lookup_flags = 0;
 retry:
-	name = filename_parentat(dfd, getname(pathname), lookup_flags,
-				&path, &last, &type);
+	name = filename_parentat(dfd, name, lookup_flags, &path, &last, &type);
 	if (IS_ERR(name))
 		return PTR_ERR(name);
 
@@ -4056,12 +4053,12 @@ exit2:
 	mnt_drop_write(path.mnt);
 exit1:
 	path_put(&path);
-	putname(name);
 	if (retry_estale(error, lookup_flags)) {
 		lookup_flags |= LOOKUP_REVAL;
 		inode = NULL;
 		goto retry;
 	}
+	putname(name);
 	return error;
 
 slashes:
@@ -4082,12 +4079,12 @@ SYSCALL_DEFINE3(unlinkat, int, dfd, const char __user *, pathname, int, flag)
 	if (flag & AT_REMOVEDIR)
 		return do_rmdir(dfd, pathname);
 
-	return do_unlinkat(dfd, pathname);
+	return do_unlinkat(dfd, getname(pathname));
 }
 
 SYSCALL_DEFINE1(unlink, const char __user *, pathname)
 {
-	return do_unlinkat(AT_FDCWD, pathname);
+	return do_unlinkat(AT_FDCWD, getname(pathname));
 }
 
 int vfs_symlink(struct inode *dir, struct dentry *dentry, const char *oldname)

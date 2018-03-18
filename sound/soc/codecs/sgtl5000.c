@@ -409,7 +409,7 @@ static int dac_put_volsw(struct snd_kcontrol *kcontrol,
 static int avc_get_threshold(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	int db, i;
 	u16 reg = snd_soc_read(codec, SGTL5000_DAP_AVC_THRESHOLD);
 
@@ -442,7 +442,7 @@ static int avc_get_threshold(struct snd_kcontrol *kcontrol,
 static int avc_put_threshold(struct snd_kcontrol *kcontrol,
 			     struct snd_ctl_elem_value *ucontrol)
 {
-	struct snd_soc_codec *codec = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_codec *codec = snd_soc_kcontrol_codec(kcontrol);
 	int db;
 	u16 reg;
 
@@ -1248,7 +1248,7 @@ static int sgtl5000_remove(struct snd_soc_codec *codec)
 	return 0;
 }
 
-static struct snd_soc_codec_driver sgtl5000_driver = {
+static const struct snd_soc_codec_driver sgtl5000_driver = {
 	.probe = sgtl5000_probe,
 	.remove = sgtl5000_remove,
 	.set_bias_level = sgtl5000_set_bias_level,
@@ -1332,10 +1332,13 @@ static int sgtl5000_i2c_probe(struct i2c_client *client,
 	sgtl5000->mclk = devm_clk_get(&client->dev, NULL);
 	if (IS_ERR(sgtl5000->mclk)) {
 		ret = PTR_ERR(sgtl5000->mclk);
-		dev_err(&client->dev, "Failed to get mclock: %d\n", ret);
 		/* Defer the probe to see if the clk will be provided later */
 		if (ret == -ENOENT)
 			ret = -EPROBE_DEFER;
+
+		if (ret != -EPROBE_DEFER)
+			dev_err(&client->dev, "Failed to get mclock: %d\n",
+				ret);
 		goto disable_regs;
 	}
 
@@ -1389,7 +1392,7 @@ static int sgtl5000_i2c_probe(struct i2c_client *client,
 
 		ana_pwr |= SGTL5000_LINEREG_D_POWERUP;
 		dev_info(&client->dev,
-			 "Using internal LDO instead of VDDD: check ER1\n");
+			 "Using internal LDO instead of VDDD: check ER1 erratum\n");
 	} else {
 		/* using external LDO for VDDD
 		 * Clear startup powerup and simple powerup

@@ -65,6 +65,8 @@ static struct tipc_bearer *bearer_get(struct net *net, int bearer_id)
 }
 
 static void bearer_disable(struct net *net, struct tipc_bearer *b);
+static int tipc_l2_rcv_msg(struct sk_buff *skb, struct net_device *dev,
+			   struct packet_type *pt, struct net_device *orig_dev);
 
 /**
  * tipc_media_find - locates specified media object by name
@@ -322,6 +324,7 @@ restart:
 	if (res) {
 		pr_warn("Bearer <%s> rejected, enable failure (%d)\n",
 			name, -res);
+		kfree(b);
 		return -EINVAL;
 	}
 
@@ -345,8 +348,10 @@ restart:
 	if (skb)
 		tipc_bearer_xmit_skb(net, bearer_id, skb, &b->bcast_addr);
 
-	if (tipc_mon_create(net, bearer_id))
+	if (tipc_mon_create(net, bearer_id)) {
+		bearer_disable(net, b);
 		return -ENOMEM;
+	}
 
 	pr_info("Enabled bearer <%s>, discovery domain %s, priority %u\n",
 		name,
@@ -363,30 +368,6 @@ static int tipc_reset_bearer(struct net *net, struct tipc_bearer *b)
 	tipc_node_delete_links(net, b->identity);
 	tipc_disc_reset(net, b);
 	return 0;
-}
-
-/* tipc_bearer_reset_all - reset all links on all bearers
- */
-void tipc_bearer_reset_all(struct net *net)
-{
-	struct tipc_bearer *b;
-	int i;
-
-	for (i = 0; i < MAX_BEARERS; i++) {
-		b = bearer_get(net, i);
-		if (b)
-			clear_bit_unlock(0, &b->up);
-	}
-	for (i = 0; i < MAX_BEARERS; i++) {
-		b = bearer_get(net, i);
-		if (b)
-			tipc_reset_bearer(net, b);
-	}
-	for (i = 0; i < MAX_BEARERS; i++) {
-		b = bearer_get(net, i);
-		if (b)
-			test_and_set_bit_lock(0, &b->up);
-	}
 }
 
 /**
@@ -428,6 +409,10 @@ int tipc_enable_l2_media(struct net *net, struct tipc_bearer *b,
 
 	/* Associate TIPC bearer with L2 bearer */
 	rcu_assign_pointer(b->media_ptr, dev);
+	b->pt.dev = dev;
+	b->pt.type = htons(ETH_P_TIPC);
+	b->pt.func = tipc_l2_rcv_msg;
+	dev_add_pack(&b->pt);
 	memset(&b->bcast_addr, 0, sizeof(b->bcast_addr));
 	memcpy(b->bcast_addr.value, dev->broadcast, b->media->hwaddr_len);
 	b->bcast_addr.media_id = b->media->type_id;
@@ -447,6 +432,7 @@ void tipc_disable_l2_media(struct tipc_bearer *b)
 	struct net_device *dev;
 
 	dev = (struct net_device *)rtnl_dereference(b->media_ptr);
+	dev_remove_pack(&b->pt);
 	RCU_INIT_POINTER(dev->tipc_ptr, NULL);
 	synchronize_net();
 	dev_put(dev);
@@ -594,11 +580,12 @@ static int tipc_l2_rcv_msg(struct sk_buff *skb, struct net_device *dev,
 	struct tipc_bearer *b;
 
 	rcu_read_lock();
-	b = rcu_dereference_rtnl(dev->tipc_ptr);
+	b = rcu_dereference_rtnl(dev->tipc_ptr) ?:
+		rcu_dereference_rtnl(orig_dev->tipc_ptr);
 	if (likely(b && test_bit(0, &b->up) &&
-		   (skb->pkt_type <= PACKET_BROADCAST))) {
+		   (skb->pkt_type <= PACKET_MULTICAST))) {
 		skb->next = NULL;
-		tipc_rcv(dev_net(dev), skb, b);
+		tipc_rcv(dev_net(b->pt.dev), skb, b);
 		rcu_read_unlock();
 		return NET_RX_SUCCESS;
 	}
@@ -653,16 +640,11 @@ static int tipc_l2_device_event(struct notifier_block *nb, unsigned long evt,
 		break;
 	case NETDEV_UNREGISTER:
 	case NETDEV_CHANGENAME:
-		bearer_disable(dev_net(dev), b);
+		bearer_disable(net, b);
 		break;
 	}
 	return NOTIFY_OK;
 }
-
-static struct packet_type tipc_packet_type __read_mostly = {
-	.type = htons(ETH_P_TIPC),
-	.func = tipc_l2_rcv_msg,
-};
 
 static struct notifier_block notifier = {
 	.notifier_call  = tipc_l2_device_event,
@@ -671,19 +653,12 @@ static struct notifier_block notifier = {
 
 int tipc_bearer_setup(void)
 {
-	int err;
-
-	err = register_netdevice_notifier(&notifier);
-	if (err)
-		return err;
-	dev_add_pack(&tipc_packet_type);
-	return 0;
+	return register_netdevice_notifier(&notifier);
 }
 
 void tipc_bearer_cleanup(void)
 {
 	unregister_netdevice_notifier(&notifier);
-	dev_remove_pack(&tipc_packet_type);
 }
 
 void tipc_bearer_stop(struct net *net)
@@ -838,7 +813,7 @@ err_out:
 	return err;
 }
 
-int tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info)
+int __tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info)
 {
 	int err;
 	char *name;
@@ -860,20 +835,27 @@ int tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info)
 
 	name = nla_data(attrs[TIPC_NLA_BEARER_NAME]);
 
-	rtnl_lock();
 	bearer = tipc_bearer_find(net, name);
-	if (!bearer) {
-		rtnl_unlock();
+	if (!bearer)
 		return -EINVAL;
-	}
 
 	bearer_disable(net, bearer);
-	rtnl_unlock();
 
 	return 0;
 }
 
-int tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info)
+int tipc_nl_bearer_disable(struct sk_buff *skb, struct genl_info *info)
+{
+	int err;
+
+	rtnl_lock();
+	err = __tipc_nl_bearer_disable(skb, info);
+	rtnl_unlock();
+
+	return err;
+}
+
+int __tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info)
 {
 	int err;
 	char *bearer;
@@ -915,15 +897,18 @@ int tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info)
 			prio = nla_get_u32(props[TIPC_NLA_PROP_PRIO]);
 	}
 
+	return tipc_enable_bearer(net, bearer, domain, prio, attrs);
+}
+
+int tipc_nl_bearer_enable(struct sk_buff *skb, struct genl_info *info)
+{
+	int err;
+
 	rtnl_lock();
-	err = tipc_enable_bearer(net, bearer, domain, prio, attrs);
-	if (err) {
-		rtnl_unlock();
-		return err;
-	}
+	err = __tipc_nl_bearer_enable(skb, info);
 	rtnl_unlock();
 
-	return 0;
+	return err;
 }
 
 int tipc_nl_bearer_add(struct sk_buff *skb, struct genl_info *info)
@@ -969,13 +954,13 @@ int tipc_nl_bearer_add(struct sk_buff *skb, struct genl_info *info)
 	return 0;
 }
 
-int tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info)
+int __tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info)
 {
-	int err;
-	char *name;
 	struct tipc_bearer *b;
 	struct nlattr *attrs[TIPC_NLA_BEARER_MAX + 1];
 	struct net *net = sock_net(skb->sk);
+	char *name;
+	int err;
 
 	if (!info->attrs[TIPC_NLA_BEARER])
 		return -EINVAL;
@@ -990,33 +975,40 @@ int tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 	name = nla_data(attrs[TIPC_NLA_BEARER_NAME]);
 
-	rtnl_lock();
 	b = tipc_bearer_find(net, name);
-	if (!b) {
-		rtnl_unlock();
+	if (!b)
 		return -EINVAL;
-	}
 
 	if (attrs[TIPC_NLA_BEARER_PROP]) {
 		struct nlattr *props[TIPC_NLA_PROP_MAX + 1];
 
 		err = tipc_nl_parse_link_prop(attrs[TIPC_NLA_BEARER_PROP],
 					      props);
-		if (err) {
-			rtnl_unlock();
+		if (err)
 			return err;
-		}
 
-		if (props[TIPC_NLA_PROP_TOL])
+		if (props[TIPC_NLA_PROP_TOL]) {
 			b->tolerance = nla_get_u32(props[TIPC_NLA_PROP_TOL]);
+			tipc_node_apply_tolerance(net, b);
+		}
 		if (props[TIPC_NLA_PROP_PRIO])
 			b->priority = nla_get_u32(props[TIPC_NLA_PROP_PRIO]);
 		if (props[TIPC_NLA_PROP_WIN])
 			b->window = nla_get_u32(props[TIPC_NLA_PROP_WIN]);
 	}
-	rtnl_unlock();
 
 	return 0;
+}
+
+int tipc_nl_bearer_set(struct sk_buff *skb, struct genl_info *info)
+{
+	int err;
+
+	rtnl_lock();
+	err = __tipc_nl_bearer_set(skb, info);
+	rtnl_unlock();
+
+	return err;
 }
 
 static int __tipc_nl_add_media(struct tipc_nl_msg *msg,
@@ -1140,7 +1132,7 @@ err_out:
 	return err;
 }
 
-int tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info)
+int __tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info)
 {
 	int err;
 	char *name;
@@ -1158,22 +1150,17 @@ int tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info)
 		return -EINVAL;
 	name = nla_data(attrs[TIPC_NLA_MEDIA_NAME]);
 
-	rtnl_lock();
 	m = tipc_media_find(name);
-	if (!m) {
-		rtnl_unlock();
+	if (!m)
 		return -EINVAL;
-	}
 
 	if (attrs[TIPC_NLA_MEDIA_PROP]) {
 		struct nlattr *props[TIPC_NLA_PROP_MAX + 1];
 
 		err = tipc_nl_parse_link_prop(attrs[TIPC_NLA_MEDIA_PROP],
 					      props);
-		if (err) {
-			rtnl_unlock();
+		if (err)
 			return err;
-		}
 
 		if (props[TIPC_NLA_PROP_TOL])
 			m->tolerance = nla_get_u32(props[TIPC_NLA_PROP_TOL]);
@@ -1182,7 +1169,17 @@ int tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info)
 		if (props[TIPC_NLA_PROP_WIN])
 			m->window = nla_get_u32(props[TIPC_NLA_PROP_WIN]);
 	}
-	rtnl_unlock();
 
 	return 0;
+}
+
+int tipc_nl_media_set(struct sk_buff *skb, struct genl_info *info)
+{
+	int err;
+
+	rtnl_lock();
+	err = __tipc_nl_media_set(skb, info);
+	rtnl_unlock();
+
+	return err;
 }

@@ -154,9 +154,8 @@ static int ping_v6_sendmsg(struct sock *sk, struct msghdr *msg, size_t len)
 				ICMP6_MIB_OUTERRORS);
 		ip6_flush_pending_frames(sk);
 	} else {
-		err = icmpv6_push_pending_frames(sk, &fl6,
-						 (struct icmp6hdr *) &pfh.icmph,
-						 len);
+		icmpv6_push_pending_frames(sk, &fl6,
+					   (struct icmp6hdr *)&pfh.icmph, len);
 	}
 	release_sock(sk);
 
@@ -241,6 +240,7 @@ static void __net_init ping_v6_proc_exit_net(struct net *net)
 static struct pernet_operations ping_v6_net_ops = {
 	.init = ping_v6_proc_init_net,
 	.exit = ping_v6_proc_exit_net,
+	.async = true,
 };
 #endif
 

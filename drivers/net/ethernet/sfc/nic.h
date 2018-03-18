@@ -81,7 +81,7 @@ static struct efx_tx_queue *efx_tx_queue_partner(struct efx_tx_queue *tx_queue)
 static inline bool __efx_nic_tx_is_empty(struct efx_tx_queue *tx_queue,
 					 unsigned int write_count)
 {
-	unsigned int empty_read_count = ACCESS_ONCE(tx_queue->empty_read_count);
+	unsigned int empty_read_count = READ_ONCE(tx_queue->empty_read_count);
 
 	if (empty_read_count == 0)
 		return false;
@@ -325,6 +325,30 @@ enum {
 	EF10_STAT_tx_bad,
 	EF10_STAT_tx_bad_bytes,
 	EF10_STAT_tx_overflow,
+	EF10_STAT_V1_COUNT,
+	EF10_STAT_fec_uncorrected_errors = EF10_STAT_V1_COUNT,
+	EF10_STAT_fec_corrected_errors,
+	EF10_STAT_fec_corrected_symbols_lane0,
+	EF10_STAT_fec_corrected_symbols_lane1,
+	EF10_STAT_fec_corrected_symbols_lane2,
+	EF10_STAT_fec_corrected_symbols_lane3,
+	EF10_STAT_ctpio_dmabuf_start,
+	EF10_STAT_ctpio_vi_busy_fallback,
+	EF10_STAT_ctpio_long_write_success,
+	EF10_STAT_ctpio_missing_dbell_fail,
+	EF10_STAT_ctpio_overflow_fail,
+	EF10_STAT_ctpio_underflow_fail,
+	EF10_STAT_ctpio_timeout_fail,
+	EF10_STAT_ctpio_noncontig_wr_fail,
+	EF10_STAT_ctpio_frm_clobber_fail,
+	EF10_STAT_ctpio_invalid_wr_fail,
+	EF10_STAT_ctpio_vi_clobber_fallback,
+	EF10_STAT_ctpio_unqualified_fallback,
+	EF10_STAT_ctpio_runt_fallback,
+	EF10_STAT_ctpio_success,
+	EF10_STAT_ctpio_fallback,
+	EF10_STAT_ctpio_poison,
+	EF10_STAT_ctpio_erase,
 	EF10_STAT_COUNT
 };
 
@@ -350,7 +374,6 @@ enum {
  * @piobuf_size: size of a single PIO buffer
  * @must_restore_piobufs: Flag: PIO buffers have yet to be restored after MC
  *	reboot
- * @rx_rss_context: Firmware handle for our RSS context
  * @rx_rss_context_exclusive: Whether our RSS context is exclusive or shared
  * @stats: Hardware statistics
  * @workaround_35388: Flag: firmware supports workaround for bug 35388
@@ -391,7 +414,6 @@ struct efx_ef10_nic_data {
 	unsigned int piobuf_handle[EF10_TX_PIOBUF_COUNT];
 	u16 piobuf_size;
 	bool must_restore_piobufs;
-	u32 rx_rss_context;
 	bool rx_rss_context_exclusive;
 	u64 stats[EF10_STAT_COUNT];
 	bool workaround_35388;
@@ -416,6 +438,7 @@ struct efx_ef10_nic_data {
 	struct efx_udp_tunnel udp_tunnels[16];
 	bool udp_tunnels_dirty;
 	struct mutex udp_tunnels_lock;
+	u64 licensed_features;
 };
 
 int efx_init_sriov(void);
@@ -424,6 +447,7 @@ void efx_fini_sriov(void);
 struct ethtool_ts_info;
 int efx_ptp_probe(struct efx_nic *efx, struct efx_channel *channel);
 void efx_ptp_defer_probe_with_channel(struct efx_nic *efx);
+struct efx_channel *efx_ptp_channel(struct efx_nic *efx);
 void efx_ptp_remove(struct efx_nic *efx);
 int efx_ptp_set_ts_config(struct efx_nic *efx, struct ifreq *ifr);
 int efx_ptp_get_ts_config(struct efx_nic *efx, struct ifreq *ifr);
@@ -447,6 +471,8 @@ static inline void efx_rx_skb_attach_timestamp(struct efx_channel *channel,
 }
 void efx_ptp_start_datapath(struct efx_nic *efx);
 void efx_ptp_stop_datapath(struct efx_nic *efx);
+bool efx_ptp_use_mac_tx_timestamps(struct efx_nic *efx);
+ktime_t efx_ptp_nic_to_kernel_time(struct efx_tx_queue *tx_queue);
 
 extern const struct efx_nic_type falcon_a1_nic_type;
 extern const struct efx_nic_type falcon_b0_nic_type;
@@ -617,11 +643,11 @@ irqreturn_t efx_farch_fatal_interrupt(struct efx_nic *efx);
 
 static inline int efx_nic_event_test_irq_cpu(struct efx_channel *channel)
 {
-	return ACCESS_ONCE(channel->event_test_cpu);
+	return READ_ONCE(channel->event_test_cpu);
 }
 static inline int efx_nic_irq_test_irq_cpu(struct efx_nic *efx)
 {
-	return ACCESS_ONCE(efx->last_irq_cpu);
+	return READ_ONCE(efx->last_irq_cpu);
 }
 
 /* Global Resources */

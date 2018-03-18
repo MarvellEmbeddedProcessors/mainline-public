@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/moduleloader.h>
 #include <linux/workqueue.h>
 #include <linux/netdevice.h>
@@ -10,8 +11,6 @@
 #include <asm/ptrace.h>
 
 #include "bpf_jit_64.h"
-
-int bpf_jit_enable __read_mostly;
 
 static inline bool is_simm13(unsigned int value)
 {
@@ -128,6 +127,8 @@ static u32 WDISP10(u32 off)
 
 #define BA		(BRANCH | CONDA)
 #define BG		(BRANCH | CONDG)
+#define BL		(BRANCH | CONDL)
+#define BLE		(BRANCH | CONDLE)
 #define BGU		(BRANCH | CONDGU)
 #define BLEU		(BRANCH | CONDLEU)
 #define BGE		(BRANCH | CONDGE)
@@ -715,8 +716,14 @@ static int emit_compare_and_branch(const u8 code, const u8 dst, u8 src,
 		case BPF_JGT:
 			br_opcode = BGU;
 			break;
+		case BPF_JLT:
+			br_opcode = BLU;
+			break;
 		case BPF_JGE:
 			br_opcode = BGEU;
+			break;
+		case BPF_JLE:
+			br_opcode = BLEU;
 			break;
 		case BPF_JSET:
 		case BPF_JNE:
@@ -725,8 +732,14 @@ static int emit_compare_and_branch(const u8 code, const u8 dst, u8 src,
 		case BPF_JSGT:
 			br_opcode = BG;
 			break;
+		case BPF_JSLT:
+			br_opcode = BL;
+			break;
 		case BPF_JSGE:
 			br_opcode = BGE;
+			break;
+		case BPF_JSLE:
+			br_opcode = BLE;
 			break;
 		default:
 			/* Make sure we dont leak kernel information to the
@@ -746,8 +759,14 @@ static int emit_compare_and_branch(const u8 code, const u8 dst, u8 src,
 		case BPF_JGT:
 			cbcond_opcode = CBCONDGU;
 			break;
+		case BPF_JLT:
+			cbcond_opcode = CBCONDLU;
+			break;
 		case BPF_JGE:
 			cbcond_opcode = CBCONDGEU;
+			break;
+		case BPF_JLE:
+			cbcond_opcode = CBCONDLEU;
 			break;
 		case BPF_JNE:
 			cbcond_opcode = CBCONDNE;
@@ -755,8 +774,14 @@ static int emit_compare_and_branch(const u8 code, const u8 dst, u8 src,
 		case BPF_JSGT:
 			cbcond_opcode = CBCONDG;
 			break;
+		case BPF_JSLT:
+			cbcond_opcode = CBCONDL;
+			break;
 		case BPF_JSGE:
 			cbcond_opcode = CBCONDGE;
+			break;
+		case BPF_JSLE:
+			cbcond_opcode = CBCONDLE;
 			break;
 		default:
 			/* Make sure we dont leak kernel information to the
@@ -942,30 +967,16 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 		emit_alu(MULX, src, dst, ctx);
 		break;
 	case BPF_ALU | BPF_DIV | BPF_X:
-		emit_cmp(src, G0, ctx);
-		emit_branch(BE|ANNUL, ctx->idx, ctx->epilogue_offset, ctx);
-		emit_loadimm(0, bpf2sparc[BPF_REG_0], ctx);
-
 		emit_write_y(G0, ctx);
 		emit_alu(DIV, src, dst, ctx);
 		break;
-
 	case BPF_ALU64 | BPF_DIV | BPF_X:
-		emit_cmp(src, G0, ctx);
-		emit_branch(BE|ANNUL, ctx->idx, ctx->epilogue_offset, ctx);
-		emit_loadimm(0, bpf2sparc[BPF_REG_0], ctx);
-
 		emit_alu(UDIVX, src, dst, ctx);
 		break;
-
 	case BPF_ALU | BPF_MOD | BPF_X: {
 		const u8 tmp = bpf2sparc[TMP_REG_1];
 
 		ctx->tmp_1_used = true;
-
-		emit_cmp(src, G0, ctx);
-		emit_branch(BE|ANNUL, ctx->idx, ctx->epilogue_offset, ctx);
-		emit_loadimm(0, bpf2sparc[BPF_REG_0], ctx);
 
 		emit_write_y(G0, ctx);
 		emit_alu3(DIV, dst, src, tmp, ctx);
@@ -977,10 +988,6 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 		const u8 tmp = bpf2sparc[TMP_REG_1];
 
 		ctx->tmp_1_used = true;
-
-		emit_cmp(src, G0, ctx);
-		emit_branch(BE|ANNUL, ctx->idx, ctx->epilogue_offset, ctx);
-		emit_loadimm(0, bpf2sparc[BPF_REG_0], ctx);
 
 		emit_alu3(UDIVX, dst, src, tmp, ctx);
 		emit_alu3(MULX, tmp, src, tmp, ctx);
@@ -1176,10 +1183,14 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 	/* IF (dst COND src) JUMP off */
 	case BPF_JMP | BPF_JEQ | BPF_X:
 	case BPF_JMP | BPF_JGT | BPF_X:
+	case BPF_JMP | BPF_JLT | BPF_X:
 	case BPF_JMP | BPF_JGE | BPF_X:
+	case BPF_JMP | BPF_JLE | BPF_X:
 	case BPF_JMP | BPF_JNE | BPF_X:
 	case BPF_JMP | BPF_JSGT | BPF_X:
+	case BPF_JMP | BPF_JSLT | BPF_X:
 	case BPF_JMP | BPF_JSGE | BPF_X:
+	case BPF_JMP | BPF_JSLE | BPF_X:
 	case BPF_JMP | BPF_JSET | BPF_X: {
 		int err;
 
@@ -1191,10 +1202,14 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 	/* IF (dst COND imm) JUMP off */
 	case BPF_JMP | BPF_JEQ | BPF_K:
 	case BPF_JMP | BPF_JGT | BPF_K:
+	case BPF_JMP | BPF_JLT | BPF_K:
 	case BPF_JMP | BPF_JGE | BPF_K:
+	case BPF_JMP | BPF_JLE | BPF_K:
 	case BPF_JMP | BPF_JNE | BPF_K:
 	case BPF_JMP | BPF_JSGT | BPF_K:
+	case BPF_JMP | BPF_JSLT | BPF_K:
 	case BPF_JMP | BPF_JSGE | BPF_K:
+	case BPF_JMP | BPF_JSLE | BPF_K:
 	case BPF_JMP | BPF_JSET | BPF_K: {
 		int err;
 
@@ -1210,14 +1225,16 @@ static int build_insn(const struct bpf_insn *insn, struct jit_ctx *ctx)
 		u8 *func = ((u8 *)__bpf_call_base) + imm;
 
 		ctx->saw_call = true;
+		if (ctx->saw_ld_abs_ind && bpf_helper_changes_pkt_data(func))
+			emit_reg_move(bpf2sparc[BPF_REG_1], L7, ctx);
 
 		emit_call((u32 *)func, ctx);
 		emit_nop(ctx);
 
 		emit_reg_move(O0, bpf2sparc[BPF_REG_0], ctx);
 
-		if (bpf_helper_changes_pkt_data(func) && ctx->saw_ld_abs_ind)
-			load_skb_regs(ctx, bpf2sparc[BPF_REG_6]);
+		if (ctx->saw_ld_abs_ind && bpf_helper_changes_pkt_data(func))
+			load_skb_regs(ctx, L7);
 		break;
 	}
 
@@ -1472,17 +1489,25 @@ static void jit_fill_hole(void *area, unsigned int size)
 		*ptr++ = 0x91d02005; /* ta 5 */
 }
 
+struct sparc64_jit_data {
+	struct bpf_binary_header *header;
+	u8 *image;
+	struct jit_ctx ctx;
+};
+
 struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 {
 	struct bpf_prog *tmp, *orig_prog = prog;
+	struct sparc64_jit_data *jit_data;
 	struct bpf_binary_header *header;
 	bool tmp_blinded = false;
+	bool extra_pass = false;
 	struct jit_ctx ctx;
 	u32 image_size;
 	u8 *image_ptr;
 	int pass;
 
-	if (!bpf_jit_enable)
+	if (!prog->jit_requested)
 		return orig_prog;
 
 	tmp = bpf_jit_blind_constants(prog);
@@ -1496,13 +1521,31 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 		prog = tmp;
 	}
 
+	jit_data = prog->aux->jit_data;
+	if (!jit_data) {
+		jit_data = kzalloc(sizeof(*jit_data), GFP_KERNEL);
+		if (!jit_data) {
+			prog = orig_prog;
+			goto out;
+		}
+		prog->aux->jit_data = jit_data;
+	}
+	if (jit_data->ctx.offset) {
+		ctx = jit_data->ctx;
+		image_ptr = jit_data->image;
+		header = jit_data->header;
+		extra_pass = true;
+		image_size = sizeof(u32) * ctx.idx;
+		goto skip_init_ctx;
+	}
+
 	memset(&ctx, 0, sizeof(ctx));
 	ctx.prog = prog;
 
 	ctx.offset = kcalloc(prog->len, sizeof(unsigned int), GFP_KERNEL);
 	if (ctx.offset == NULL) {
 		prog = orig_prog;
-		goto out;
+		goto out_off;
 	}
 
 	/* Fake pass to detect features used, and get an accurate assessment
@@ -1525,7 +1568,7 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 	}
 
 	ctx.image = (u32 *)image_ptr;
-
+skip_init_ctx:
 	for (pass = 1; pass < 3; pass++) {
 		ctx.idx = 0;
 
@@ -1556,14 +1599,24 @@ struct bpf_prog *bpf_int_jit_compile(struct bpf_prog *prog)
 
 	bpf_flush_icache(header, (u8 *)header + (header->pages * PAGE_SIZE));
 
-	bpf_jit_binary_lock_ro(header);
+	if (!prog->is_func || extra_pass) {
+		bpf_jit_binary_lock_ro(header);
+	} else {
+		jit_data->ctx = ctx;
+		jit_data->image = image_ptr;
+		jit_data->header = header;
+	}
 
 	prog->bpf_func = (void *)ctx.image;
 	prog->jited = 1;
 	prog->jited_len = image_size;
 
+	if (!prog->is_func || extra_pass) {
 out_off:
-	kfree(ctx.offset);
+		kfree(ctx.offset);
+		kfree(jit_data);
+		prog->aux->jit_data = NULL;
+	}
 out:
 	if (tmp_blinded)
 		bpf_jit_prog_release_other(prog, prog == orig_prog ?

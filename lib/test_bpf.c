@@ -24,10 +24,11 @@
 #include <linux/if_vlan.h>
 #include <linux/random.h>
 #include <linux/highmem.h>
+#include <linux/sched.h>
 
 /* General test specific settings */
 #define MAX_SUBTESTS	3
-#define MAX_TESTRUNS	10000
+#define MAX_TESTRUNS	1000
 #define MAX_DATA	128
 #define MAX_INSNS	512
 #define MAX_K		0xffffFFFF
@@ -83,6 +84,7 @@ struct bpf_test {
 		__u32 result;
 	} test[MAX_SUBTESTS];
 	int (*fill_helper)(struct bpf_test *self);
+	int expected_errcode; /* used when FLAG_EXPECTED_FAIL is set in the aux */
 	__u8 frag_data[MAX_DATA];
 	int stack_depth; /* for eBPF only, since tests don't call verifier */
 };
@@ -431,6 +433,41 @@ loop:
 
 	self->u.ptr.insns = insn;
 	self->u.ptr.len = len;
+
+	return 0;
+}
+
+static int bpf_fill_ld_abs_vlan_push_pop2(struct bpf_test *self)
+{
+	struct bpf_insn *insn;
+
+	insn = kmalloc_array(16, sizeof(*insn), GFP_KERNEL);
+	if (!insn)
+		return -ENOMEM;
+
+	/* Due to func address being non-const, we need to
+	 * assemble this here.
+	 */
+	insn[0] = BPF_MOV64_REG(R6, R1);
+	insn[1] = BPF_LD_ABS(BPF_B, 0);
+	insn[2] = BPF_LD_ABS(BPF_H, 0);
+	insn[3] = BPF_LD_ABS(BPF_W, 0);
+	insn[4] = BPF_MOV64_REG(R7, R6);
+	insn[5] = BPF_MOV64_IMM(R6, 0);
+	insn[6] = BPF_MOV64_REG(R1, R7);
+	insn[7] = BPF_MOV64_IMM(R2, 1);
+	insn[8] = BPF_MOV64_IMM(R3, 2);
+	insn[9] = BPF_RAW_INSN(BPF_JMP | BPF_CALL, 0, 0, 0,
+			       bpf_skb_vlan_push_proto.func - __bpf_call_base);
+	insn[10] = BPF_MOV64_REG(R6, R7);
+	insn[11] = BPF_LD_ABS(BPF_B, 0);
+	insn[12] = BPF_LD_ABS(BPF_H, 0);
+	insn[13] = BPF_LD_ABS(BPF_W, 0);
+	insn[14] = BPF_MOV64_IMM(R0, 42);
+	insn[15] = BPF_EXIT_INSN();
+
+	self->u.ptr.insns = insn;
+	self->u.ptr.len = 16;
 
 	return 0;
 }
@@ -950,6 +987,32 @@ static struct bpf_test tests[] = {
 		CLASSIC,
 		{ 4, 4, 4, 3, 3 },
 		{ { 2, 0 }, { 3, 1 }, { 4, MAX_K } },
+	},
+	{
+		"JGE (jt 0), test 1",
+		.u.insns = {
+			BPF_STMT(BPF_LDX | BPF_LEN, 0),
+			BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 2),
+			BPF_JUMP(BPF_JMP | BPF_JGE | BPF_X, 0, 0, 1),
+			BPF_STMT(BPF_RET | BPF_K, 1),
+			BPF_STMT(BPF_RET | BPF_K, MAX_K)
+		},
+		CLASSIC,
+		{ 4, 4, 4, 3, 3 },
+		{ { 2, 0 }, { 3, 1 }, { 4, 1 } },
+	},
+	{
+		"JGE (jt 0), test 2",
+		.u.insns = {
+			BPF_STMT(BPF_LDX | BPF_LEN, 0),
+			BPF_STMT(BPF_LD | BPF_B | BPF_ABS, 2),
+			BPF_JUMP(BPF_JMP | BPF_JGE | BPF_X, 0, 0, 1),
+			BPF_STMT(BPF_RET | BPF_K, 1),
+			BPF_STMT(BPF_RET | BPF_K, MAX_K)
+		},
+		CLASSIC,
+		{ 4, 4, 5, 3, 3 },
+		{ { 4, 1 }, { 5, 1 }, { 6, MAX_K } },
 	},
 	{
 		"JGE",
@@ -1942,10 +2005,14 @@ static struct bpf_test tests[] = {
 		{ { 4, 0 }, { 5, 10 } }
 	},
 	{
-		"INT: DIV by zero",
+		/* This one doesn't go through verifier, but is just raw insn
+		 * as opposed to cBPF tests from here. Thus div by 0 tests are
+		 * done in test_verifier in BPF kselftests.
+		 */
+		"INT: DIV by -1",
 		.u.insns_int = {
 			BPF_ALU64_REG(BPF_MOV, R6, R1),
-			BPF_ALU64_IMM(BPF_MOV, R7, 0),
+			BPF_ALU64_IMM(BPF_MOV, R7, -1),
 			BPF_LD_ABS(BPF_B, 3),
 			BPF_ALU32_REG(BPF_DIV, R0, R7),
 			BPF_EXIT_INSN(),
@@ -1961,7 +2028,9 @@ static struct bpf_test tests[] = {
 		},
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
-		{ }
+		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{
 		"check: div_k_0",
@@ -1971,7 +2040,9 @@ static struct bpf_test tests[] = {
 		},
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
-		{ }
+		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{
 		"check: unknown insn",
@@ -1982,7 +2053,9 @@ static struct bpf_test tests[] = {
 		},
 		CLASSIC | FLAG_EXPECTED_FAIL,
 		{ },
-		{ }
+		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{
 		"check: out of range spill/fill",
@@ -1992,7 +2065,9 @@ static struct bpf_test tests[] = {
 		},
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
-		{ }
+		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{
 		"JUMPS + HOLES",
@@ -2084,6 +2159,8 @@ static struct bpf_test tests[] = {
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
 		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{
 		"check: LDX + RET X",
@@ -2094,6 +2171,8 @@ static struct bpf_test tests[] = {
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
 		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{	/* Mainly checking JIT here. */
 		"M[]: alt STX + LDX",
@@ -2268,6 +2347,8 @@ static struct bpf_test tests[] = {
 		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
 		{ },
 		{ },
+		.fill_helper = NULL,
+		.expected_errcode = -EINVAL,
 	},
 	{	/* Passes checker but fails during runtime. */
 		"LD [SKF_AD_OFF-1]",
@@ -4492,6 +4573,35 @@ static struct bpf_test tests[] = {
 		{ },
 		{ { 0, 1 } },
 	},
+	/* BPF_JMP | BPF_JSLT | BPF_K */
+	{
+		"JMP_JSLT_K: Signed jump: if (-2 < -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 0xfffffffffffffffeLL),
+			BPF_JMP_IMM(BPF_JSLT, R1, -1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLT_K: Signed jump: if (-1 < -1) return 0",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_LD_IMM64(R1, 0xffffffffffffffffLL),
+			BPF_JMP_IMM(BPF_JSLT, R1, -1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
 	/* BPF_JMP | BPF_JSGT | BPF_K */
 	{
 		"JMP_JSGT_K: Signed jump: if (-1 > -2) return 1",
@@ -4515,6 +4625,73 @@ static struct bpf_test tests[] = {
 			BPF_JMP_IMM(BPF_JSGT, R1, -1, 1),
 			BPF_EXIT_INSN(),
 			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	/* BPF_JMP | BPF_JSLE | BPF_K */
+	{
+		"JMP_JSLE_K: Signed jump: if (-2 <= -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 0xfffffffffffffffeLL),
+			BPF_JMP_IMM(BPF_JSLE, R1, -1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLE_K: Signed jump: if (-1 <= -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 0xffffffffffffffffLL),
+			BPF_JMP_IMM(BPF_JSLE, R1, -1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLE_K: Signed jump: value walk 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 6),
+			BPF_ALU64_IMM(BPF_SUB, R1, 1),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 4),
+			BPF_ALU64_IMM(BPF_SUB, R1, 1),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 2),
+			BPF_ALU64_IMM(BPF_SUB, R1, 1),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 1),
+			BPF_EXIT_INSN(),		/* bad exit */
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),	/* good exit */
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLE_K: Signed jump: value walk 2",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 4),
+			BPF_ALU64_IMM(BPF_SUB, R1, 2),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 2),
+			BPF_ALU64_IMM(BPF_SUB, R1, 2),
+			BPF_JMP_IMM(BPF_JSLE, R1, 0, 1),
+			BPF_EXIT_INSN(),		/* bad exit */
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),	/* good exit */
 			BPF_EXIT_INSN(),
 		},
 		INTERNAL,
@@ -4617,6 +4794,35 @@ static struct bpf_test tests[] = {
 		{ },
 		{ { 0, 1 } },
 	},
+	/* BPF_JMP | BPF_JLT | BPF_K */
+	{
+		"JMP_JLT_K: if (2 < 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 2),
+			BPF_JMP_IMM(BPF_JLT, R1, 3, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JGT_K: Unsigned jump: if (1 < -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 1),
+			BPF_JMP_IMM(BPF_JLT, R1, -1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
 	/* BPF_JMP | BPF_JGE | BPF_K */
 	{
 		"JMP_JGE_K: if (3 >= 2) return 1",
@@ -4624,6 +4830,21 @@ static struct bpf_test tests[] = {
 			BPF_ALU32_IMM(BPF_MOV, R0, 0),
 			BPF_LD_IMM64(R1, 3),
 			BPF_JMP_IMM(BPF_JGE, R1, 2, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	/* BPF_JMP | BPF_JLE | BPF_K */
+	{
+		"JMP_JLE_K: if (2 <= 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 2),
+			BPF_JMP_IMM(BPF_JLE, R1, 3, 1),
 			BPF_EXIT_INSN(),
 			BPF_ALU32_IMM(BPF_MOV, R0, 1),
 			BPF_EXIT_INSN(),
@@ -4654,6 +4875,36 @@ static struct bpf_test tests[] = {
 			BPF_ALU32_IMM(BPF_MOV, R0, 0),
 			BPF_LD_IMM64(R1, 3),
 			BPF_JMP_IMM(BPF_JGE, R1, 3, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	/* BPF_JMP | BPF_JLT | BPF_K jump backwards */
+	{
+		"JMP_JGT_K: if (2 < 3) return 1 (jump backwards)",
+		.u.insns_int = {
+			BPF_JMP_IMM(BPF_JA, 0, 0, 2), /* goto start */
+			BPF_ALU32_IMM(BPF_MOV, R0, 1), /* out: */
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 0), /* start: */
+			BPF_LD_IMM64(R1, 2), /* note: this takes 2 insns */
+			BPF_JMP_IMM(BPF_JLT, R1, 3, -6), /* goto out */
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JLE_K: if (3 <= 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_JMP_IMM(BPF_JLE, R1, 3, 1),
 			BPF_EXIT_INSN(),
 			BPF_ALU32_IMM(BPF_MOV, R0, 1),
 			BPF_EXIT_INSN(),
@@ -4752,6 +5003,37 @@ static struct bpf_test tests[] = {
 		{ },
 		{ { 0, 1 } },
 	},
+	/* BPF_JMP | BPF_JSLT | BPF_X */
+	{
+		"JMP_JSLT_X: Signed jump: if (-2 < -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, -1),
+			BPF_LD_IMM64(R2, -2),
+			BPF_JMP_REG(BPF_JSLT, R2, R1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLT_X: Signed jump: if (-1 < -1) return 0",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_LD_IMM64(R1, -1),
+			BPF_LD_IMM64(R2, -1),
+			BPF_JMP_REG(BPF_JSLT, R1, R2, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
 	/* BPF_JMP | BPF_JSGE | BPF_X */
 	{
 		"JMP_JSGE_X: Signed jump: if (-1 >= -2) return 1",
@@ -4775,6 +5057,37 @@ static struct bpf_test tests[] = {
 			BPF_LD_IMM64(R1, -1),
 			BPF_LD_IMM64(R2, -1),
 			BPF_JMP_REG(BPF_JSGE, R1, R2, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	/* BPF_JMP | BPF_JSLE | BPF_X */
+	{
+		"JMP_JSLE_X: Signed jump: if (-2 <= -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, -1),
+			BPF_LD_IMM64(R2, -2),
+			BPF_JMP_REG(BPF_JSLE, R2, R1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JSLE_X: Signed jump: if (-1 <= -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, -1),
+			BPF_LD_IMM64(R2, -1),
+			BPF_JMP_REG(BPF_JSLE, R1, R2, 1),
 			BPF_EXIT_INSN(),
 			BPF_ALU32_IMM(BPF_MOV, R0, 1),
 			BPF_EXIT_INSN(),
@@ -4814,6 +5127,37 @@ static struct bpf_test tests[] = {
 		{ },
 		{ { 0, 1 } },
 	},
+	/* BPF_JMP | BPF_JLT | BPF_X */
+	{
+		"JMP_JLT_X: if (2 < 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 2),
+			BPF_JMP_REG(BPF_JLT, R2, R1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JLT_X: Unsigned jump: if (1 < -1) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, -1),
+			BPF_LD_IMM64(R2, 1),
+			BPF_JMP_REG(BPF_JLT, R2, R1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
 	/* BPF_JMP | BPF_JGE | BPF_X */
 	{
 		"JMP_JGE_X: if (3 >= 2) return 1",
@@ -4837,6 +5181,37 @@ static struct bpf_test tests[] = {
 			BPF_LD_IMM64(R1, 3),
 			BPF_LD_IMM64(R2, 3),
 			BPF_JMP_REG(BPF_JGE, R1, R2, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	/* BPF_JMP | BPF_JLE | BPF_X */
+	{
+		"JMP_JLE_X: if (2 <= 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 2),
+			BPF_JMP_REG(BPF_JLE, R2, R1, 1),
+			BPF_EXIT_INSN(),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JLE_X: if (3 <= 3) return 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 3),
+			BPF_JMP_REG(BPF_JLE, R1, R2, 1),
 			BPF_EXIT_INSN(),
 			BPF_ALU32_IMM(BPF_MOV, R0, 1),
 			BPF_EXIT_INSN(),
@@ -4882,6 +5257,50 @@ static struct bpf_test tests[] = {
 			BPF_LD_IMM64(R1, 3),
 			BPF_LD_IMM64(R2, 2),
 			BPF_JMP_REG(BPF_JGE, R1, R2, 4),
+			BPF_LD_IMM64(R0, 0xffffffffffffffffULL),
+			BPF_LD_IMM64(R0, 0xeeeeeeeeeeeeeeeeULL),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JMP_JLE_X: ldimm64 test 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 2),
+			BPF_JMP_REG(BPF_JLE, R2, R1, 2),
+			BPF_LD_IMM64(R0, 0xffffffffffffffffULL),
+			BPF_LD_IMM64(R0, 0xeeeeeeeeeeeeeeeeULL),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 0xeeeeeeeeU } },
+	},
+	{
+		"JMP_JLE_X: ldimm64 test 2",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 0),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 2),
+			BPF_JMP_REG(BPF_JLE, R2, R1, 0),
+			BPF_LD_IMM64(R0, 0xffffffffffffffffULL),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 0xffffffffU } },
+	},
+	{
+		"JMP_JLE_X: ldimm64 test 3",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_LD_IMM64(R1, 3),
+			BPF_LD_IMM64(R2, 2),
+			BPF_JMP_REG(BPF_JLE, R2, R1, 4),
 			BPF_LD_IMM64(R0, 0xffffffffffffffffULL),
 			BPF_LD_IMM64(R0, 0xeeeeeeeeeeeeeeeeULL),
 			BPF_EXIT_INSN(),
@@ -4992,6 +5411,7 @@ static struct bpf_test tests[] = {
 		{ },
 		{ },
 		.fill_helper = bpf_fill_maxinsns4,
+		.expected_errcode = -EINVAL,
 	},
 	{	/* Mainly checking JIT here. */
 		"BPF_MAXINSNS: Very long jump",
@@ -5047,10 +5467,15 @@ static struct bpf_test tests[] = {
 	{
 		"BPF_MAXINSNS: Jump, gap, jump, ...",
 		{ },
+#ifdef CONFIG_BPF_JIT_ALWAYS_ON
+		CLASSIC | FLAG_NO_DATA | FLAG_EXPECTED_FAIL,
+#else
 		CLASSIC | FLAG_NO_DATA,
+#endif
 		{ },
 		{ { 0, 0xababcbac } },
 		.fill_helper = bpf_fill_maxinsns11,
+		.expected_errcode = -ENOTSUPP,
 	},
 	{
 		"BPF_MAXINSNS: ld_abs+get_processor_id",
@@ -5702,6 +6127,118 @@ static struct bpf_test tests[] = {
 		{},
 		{ {0x1, 0x42 } },
 	},
+	{
+		"LD_ABS with helper changing skb data",
+		{ },
+		INTERNAL,
+		{ 0x34 },
+		{ { ETH_HLEN, 42 } },
+		.fill_helper = bpf_fill_ld_abs_vlan_push_pop2,
+	},
+	/* Checking interpreter vs JIT wrt signed extended imms. */
+	{
+		"JNE signed compare, test 1",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R1, 0xfefbbc12),
+			BPF_ALU32_IMM(BPF_MOV, R3, 0xffff0000),
+			BPF_MOV64_REG(R2, R1),
+			BPF_ALU64_REG(BPF_AND, R2, R3),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_IMM(BPF_JNE, R2, -17104896, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JNE signed compare, test 2",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R1, 0xfefbbc12),
+			BPF_ALU32_IMM(BPF_MOV, R3, 0xffff0000),
+			BPF_MOV64_REG(R2, R1),
+			BPF_ALU64_REG(BPF_AND, R2, R3),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_IMM(BPF_JNE, R2, 0xfefb0000, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JNE signed compare, test 3",
+		.u.insns_int = {
+			BPF_ALU32_IMM(BPF_MOV, R1, 0xfefbbc12),
+			BPF_ALU32_IMM(BPF_MOV, R3, 0xffff0000),
+			BPF_ALU32_IMM(BPF_MOV, R4, 0xfefb0000),
+			BPF_MOV64_REG(R2, R1),
+			BPF_ALU64_REG(BPF_AND, R2, R3),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_REG(BPF_JNE, R2, R4, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 2 } },
+	},
+	{
+		"JNE signed compare, test 4",
+		.u.insns_int = {
+			BPF_LD_IMM64(R1, -17104896),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_IMM(BPF_JNE, R1, -17104896, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 2 } },
+	},
+	{
+		"JNE signed compare, test 5",
+		.u.insns_int = {
+			BPF_LD_IMM64(R1, 0xfefb0000),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_IMM(BPF_JNE, R1, 0xfefb0000, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 1 } },
+	},
+	{
+		"JNE signed compare, test 6",
+		.u.insns_int = {
+			BPF_LD_IMM64(R1, 0x7efb0000),
+			BPF_ALU32_IMM(BPF_MOV, R0, 1),
+			BPF_JMP_IMM(BPF_JNE, R1, 0x7efb0000, 1),
+			BPF_ALU32_IMM(BPF_MOV, R0, 2),
+			BPF_EXIT_INSN(),
+		},
+		INTERNAL,
+		{ },
+		{ { 0, 2 } },
+	},
+	{
+		"JNE signed compare, test 7",
+		.u.insns = {
+			BPF_STMT(BPF_LD | BPF_IMM, 0xffff0000),
+			BPF_STMT(BPF_MISC | BPF_TAX, 0),
+			BPF_STMT(BPF_LD | BPF_IMM, 0xfefbbc12),
+			BPF_STMT(BPF_ALU | BPF_AND | BPF_X, 0),
+			BPF_JUMP(BPF_JMP | BPF_JEQ | BPF_K, 0xfefb0000, 1, 0),
+			BPF_STMT(BPF_RET | BPF_K, 1),
+			BPF_STMT(BPF_RET | BPF_K, 2),
+		},
+		CLASSIC | FLAG_NO_DATA,
+		{},
+		{ { 0, 2 } },
+	},
 };
 
 static struct net_device dev;
@@ -5829,7 +6366,7 @@ static struct bpf_prog *generate_filter(int which, int *err)
 
 		*err = bpf_prog_create(&fp, &fprog);
 		if (tests[which].aux & FLAG_EXPECTED_FAIL) {
-			if (*err == -EINVAL) {
+			if (*err == tests[which].expected_errcode) {
 				pr_cont("PASS\n");
 				/* Verifier rejected filter as expected. */
 				*err = 0;
@@ -5843,9 +6380,8 @@ static struct bpf_prog *generate_filter(int which, int *err)
 				return NULL;
 			}
 		}
-		/* We don't expect to fail. */
 		if (*err) {
-			pr_cont("FAIL to attach err=%d len=%d\n",
+			pr_cont("FAIL to prog_create err=%d len=%d\n",
 				*err, fprog.len);
 			return NULL;
 		}
@@ -5869,6 +6405,10 @@ static struct bpf_prog *generate_filter(int which, int *err)
 		 * checks.
 		 */
 		fp = bpf_prog_select_runtime(fp, err);
+		if (*err) {
+			pr_cont("FAIL to select_runtime err=%d\n", *err);
+			return NULL;
+		}
 		break;
 	}
 
@@ -6043,6 +6583,7 @@ static __init int test_bpf(void)
 		struct bpf_prog *fp;
 		int err;
 
+		cond_resched();
 		if (exclude_test(i))
 			continue;
 
@@ -6054,8 +6595,8 @@ static __init int test_bpf(void)
 				pass_cnt++;
 				continue;
 			}
-
-			return err;
+			err_cnt++;
+			continue;
 		}
 
 		pr_cont("jited:%u ", fp->jited);

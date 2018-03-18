@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ASM_POWERPC_NOHASH_32_PGTABLE_H
 #define _ASM_POWERPC_NOHASH_32_PGTABLE_H
 
@@ -23,6 +24,7 @@ extern int icache_44x_need_flush;
 #define PGD_INDEX_SIZE	(32 - PGDIR_SHIFT)
 
 #define PMD_CACHE_INDEX	PMD_INDEX_SIZE
+#define PUD_CACHE_INDEX	PUD_INDEX_SIZE
 
 #ifndef __ASSEMBLY__
 #define PTE_TABLE_SIZE	(sizeof(pte_t) << PTE_INDEX_SIZE)
@@ -121,7 +123,7 @@ extern int icache_44x_need_flush;
 #include <asm/nohash/pte-book3e.h>
 #elif defined(CONFIG_FSL_BOOKE)
 #include <asm/nohash/32/pte-fsl-booke.h>
-#elif defined(CONFIG_8xx)
+#elif defined(CONFIG_PPC_8xx)
 #include <asm/nohash/32/pte-8xx.h>
 #endif
 
@@ -281,7 +283,7 @@ static inline void __ptep_set_access_flags(struct mm_struct *mm,
 {
 	unsigned long set = pte_val(entry) &
 		(_PAGE_DIRTY | _PAGE_ACCESSED | _PAGE_RW | _PAGE_EXEC);
-	unsigned long clr = ~pte_val(entry) & _PAGE_RO;
+	unsigned long clr = ~pte_val(entry) & (_PAGE_RO | _PAGE_NA);
 
 	pte_update(ptep, clr, set);
 }
@@ -336,9 +338,6 @@ static inline void __ptep_set_access_flags(struct mm_struct *mm,
 #define __swp_entry(type, offset)	((swp_entry_t) { (type) | ((offset) << 5) })
 #define __pte_to_swp_entry(pte)		((swp_entry_t) { pte_val(pte) >> 3 })
 #define __swp_entry_to_pte(x)		((pte_t) { (x).val << 3 })
-
-extern int get_pteptr(struct mm_struct *mm, unsigned long addr, pte_t **ptep,
-		      pmd_t **pmdp);
 
 int map_kernel_page(unsigned long va, phys_addr_t pa, int flags);
 

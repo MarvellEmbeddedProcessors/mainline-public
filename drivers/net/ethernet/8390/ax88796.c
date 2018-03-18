@@ -77,8 +77,6 @@ static unsigned char version[] = "ax88796.c: Copyright 2005,2007 Simtec Electron
 
 #define AX_GPOC_PPDSET	BIT(6)
 
-static u32 ax_msg_enable;
-
 /* device private data */
 
 struct ax_device {
@@ -585,7 +583,7 @@ static int ax_bb_get_data(struct mdiobb_ctrl *ctrl)
 	return reg_memr & AX_MEMR_MDI ? 1 : 0;
 }
 
-static struct mdiobb_ops bb_ops = {
+static const struct mdiobb_ops bb_ops = {
 	.owner = THIS_MODULE,
 	.set_mdc = ax_bb_mdc,
 	.set_mdio_dir = ax_bb_dir,
@@ -747,7 +745,6 @@ static int ax_init_dev(struct net_device *dev)
 	ei_local->block_output = &ax_block_output;
 	ei_local->get_8390_hdr = &ax_get_8390_hdr;
 	ei_local->priv = 0;
-	ei_local->msg_enable = ax_msg_enable;
 
 	dev->netdev_ops = &ax_netdev_ops;
 	dev->ethtool_ops = &ax_ethtool_ops;

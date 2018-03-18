@@ -122,9 +122,6 @@ static bool __init check_loader_disabled_bsp(void)
 	bool *res = &dis_ucode_ldr;
 #endif
 
-	if (!have_cpuid_p())
-		return *res;
-
 	/*
 	 * CPUID(1).ECX[31]: reserved for hypervisor use. This is still not
 	 * completely accurate as xen pv guests don't see that CPUID bit set but
@@ -166,24 +163,36 @@ bool get_builtin_firmware(struct cpio_data *cd, const char *name)
 void __init load_ucode_bsp(void)
 {
 	unsigned int cpuid_1_eax;
+	bool intel = true;
 
-	if (check_loader_disabled_bsp())
+	if (!have_cpuid_p())
 		return;
 
 	cpuid_1_eax = native_cpuid_eax(1);
 
 	switch (x86_cpuid_vendor()) {
 	case X86_VENDOR_INTEL:
-		if (x86_family(cpuid_1_eax) >= 6)
-			load_ucode_intel_bsp();
+		if (x86_family(cpuid_1_eax) < 6)
+			return;
 		break;
+
 	case X86_VENDOR_AMD:
-		if (x86_family(cpuid_1_eax) >= 0x10)
-			load_ucode_amd_bsp(cpuid_1_eax);
+		if (x86_family(cpuid_1_eax) < 0x10)
+			return;
+		intel = false;
 		break;
+
 	default:
-		break;
+		return;
 	}
+
+	if (check_loader_disabled_bsp())
+		return;
+
+	if (intel)
+		load_ucode_intel_bsp();
+	else
+		load_ucode_amd_bsp(cpuid_1_eax);
 }
 
 static bool check_loader_disabled_ap(void)
@@ -230,7 +239,7 @@ static int __init save_microcode_in_initrd(void)
 		break;
 	case X86_VENDOR_AMD:
 		if (c->x86 >= 0x10)
-			return save_microcode_in_initrd_amd(cpuid_eax(1));
+			ret = save_microcode_in_initrd_amd(cpuid_eax(1));
 		break;
 	default:
 		break;
@@ -365,7 +374,7 @@ static int collect_cpu_info(int cpu)
 }
 
 struct apply_microcode_ctx {
-	int err;
+	enum ucode_state err;
 };
 
 static void apply_microcode_local(void *arg)
@@ -480,31 +489,30 @@ static void __exit microcode_dev_exit(void)
 /* fake device for request_firmware */
 static struct platform_device	*microcode_pdev;
 
-static int reload_for_cpu(int cpu)
+static enum ucode_state reload_for_cpu(int cpu)
 {
 	struct ucode_cpu_info *uci = ucode_cpu_info + cpu;
 	enum ucode_state ustate;
-	int err = 0;
 
 	if (!uci->valid)
-		return err;
+		return UCODE_OK;
 
 	ustate = microcode_ops->request_microcode_fw(cpu, &microcode_pdev->dev, true);
-	if (ustate == UCODE_OK)
-		apply_microcode_on_target(cpu);
-	else
-		if (ustate == UCODE_ERROR)
-			err = -EINVAL;
-	return err;
+	if (ustate != UCODE_OK)
+		return ustate;
+
+	return apply_microcode_on_target(cpu);
 }
 
 static ssize_t reload_store(struct device *dev,
 			    struct device_attribute *attr,
 			    const char *buf, size_t size)
 {
+	enum ucode_state tmp_ret = UCODE_OK;
+	bool do_callback = false;
 	unsigned long val;
+	ssize_t ret = 0;
 	int cpu;
-	ssize_t ret = 0, tmp_ret;
 
 	ret = kstrtoul(buf, 0, &val);
 	if (ret)
@@ -517,15 +525,21 @@ static ssize_t reload_store(struct device *dev,
 	mutex_lock(&microcode_mutex);
 	for_each_online_cpu(cpu) {
 		tmp_ret = reload_for_cpu(cpu);
-		if (tmp_ret != 0)
+		if (tmp_ret > UCODE_NFOUND) {
 			pr_warn("Error reloading microcode on CPU %d\n", cpu);
 
-		/* save retval of the first encountered reload error */
-		if (!ret)
-			ret = tmp_ret;
+			/* set retval for the first encountered reload error */
+			if (!ret)
+				ret = -EINVAL;
+		}
+
+		if (tmp_ret == UCODE_UPDATED)
+			do_callback = true;
 	}
-	if (!ret)
-		perf_check_microcode();
+
+	if (!ret && do_callback)
+		microcode_check();
+
 	mutex_unlock(&microcode_mutex);
 	put_online_cpus();
 
@@ -551,7 +565,7 @@ static ssize_t pf_show(struct device *dev,
 	return sprintf(buf, "0x%x\n", uci->cpu_sig.pf);
 }
 
-static DEVICE_ATTR(reload, 0200, NULL, reload_store);
+static DEVICE_ATTR_WO(reload);
 static DEVICE_ATTR(version, 0400, version_show, NULL);
 static DEVICE_ATTR(processor_flags, 0400, pf_show, NULL);
 
@@ -561,7 +575,7 @@ static struct attribute *mc_default_attrs[] = {
 	NULL
 };
 
-static struct attribute_group mc_attr_group = {
+static const struct attribute_group mc_attr_group = {
 	.attrs			= mc_default_attrs,
 	.name			= "microcode",
 };
@@ -707,7 +721,7 @@ static struct attribute *cpu_root_microcode_attrs[] = {
 	NULL
 };
 
-static struct attribute_group cpu_root_microcode_group = {
+static const struct attribute_group cpu_root_microcode_group = {
 	.name  = "microcode",
 	.attrs = cpu_root_microcode_attrs,
 };

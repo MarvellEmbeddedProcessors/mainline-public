@@ -11,7 +11,7 @@
 #include <linux/kernel.h>
 #include <linux/err.h>
 #include <linux/export.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 
 static const struct nand_data_interface onfi_sdr_timings[] = {
 	/* Mode 0 */
@@ -283,16 +283,16 @@ const struct nand_sdr_timings *onfi_async_timing_mode_to_sdr_timings(int mode)
 EXPORT_SYMBOL(onfi_async_timing_mode_to_sdr_timings);
 
 /**
- * onfi_init_data_interface - [NAND Interface] Initialize a data interface from
+ * onfi_fill_data_interface - [NAND Interface] Initialize a data interface from
  * given ONFI mode
- * @iface: The data interface to be initialized
  * @mode: The ONFI timing mode
  */
-int onfi_init_data_interface(struct nand_chip *chip,
-			     struct nand_data_interface *iface,
+int onfi_fill_data_interface(struct nand_chip *chip,
 			     enum nand_data_interface_type type,
 			     int timing_mode)
 {
+	struct nand_data_interface *iface = &chip->data_interface;
+
 	if (type != NAND_SDR_IFACE)
 		return -EINVAL;
 
@@ -311,9 +311,9 @@ int onfi_init_data_interface(struct nand_chip *chip,
 		struct nand_sdr_timings *timings = &iface->timings.sdr;
 
 		/* microseconds -> picoseconds */
-		timings->tPROG_max = 1000000UL * le16_to_cpu(params->t_prog);
-		timings->tBERS_max = 1000000UL * le16_to_cpu(params->t_bers);
-		timings->tR_max = 1000000UL * le16_to_cpu(params->t_r);
+		timings->tPROG_max = 1000000ULL * le16_to_cpu(params->t_prog);
+		timings->tBERS_max = 1000000ULL * le16_to_cpu(params->t_bers);
+		timings->tR_max = 1000000ULL * le16_to_cpu(params->t_r);
 
 		/* nanoseconds -> picoseconds */
 		timings->tCCS_min = 1000UL * le16_to_cpu(params->t_ccs);
@@ -321,15 +321,4 @@ int onfi_init_data_interface(struct nand_chip *chip,
 
 	return 0;
 }
-EXPORT_SYMBOL(onfi_init_data_interface);
-
-/**
- * nand_get_default_data_interface - [NAND Interface] Retrieve NAND
- * data interface for mode 0. This is used as default timing after
- * reset.
- */
-const struct nand_data_interface *nand_get_default_data_interface(void)
-{
-	return &onfi_sdr_timings[0];
-}
-EXPORT_SYMBOL(nand_get_default_data_interface);
+EXPORT_SYMBOL(onfi_fill_data_interface);

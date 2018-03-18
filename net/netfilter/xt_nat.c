@@ -8,6 +8,8 @@
  * published by the Free Software Foundation.
  */
 
+#define pr_fmt(fmt) KBUILD_MODNAME ": " fmt
+
 #include <linux/module.h>
 #include <linux/skbuff.h>
 #include <linux/netfilter.h>
@@ -19,8 +21,7 @@ static int xt_nat_checkentry_v0(const struct xt_tgchk_param *par)
 	const struct nf_nat_ipv4_multi_range_compat *mr = par->targinfo;
 
 	if (mr->rangesize != 1) {
-		pr_info("%s: multiple ranges no longer supported\n",
-			par->target->name);
+		pr_info_ratelimited("multiple ranges no longer supported\n");
 		return -EINVAL;
 	}
 	return nf_ct_netns_get(par->net, par->family);
@@ -58,9 +59,9 @@ xt_snat_target_v0(struct sk_buff *skb, const struct xt_action_param *par)
 	struct nf_conn *ct;
 
 	ct = nf_ct_get(skb, &ctinfo);
-	NF_CT_ASSERT(ct != NULL &&
-		     (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
-		      ctinfo == IP_CT_RELATED_REPLY));
+	WARN_ON(!(ct != NULL &&
+		 (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
+		  ctinfo == IP_CT_RELATED_REPLY)));
 
 	xt_nat_convert_range(&range, &mr->range[0]);
 	return nf_nat_setup_info(ct, &range, NF_NAT_MANIP_SRC);
@@ -75,8 +76,8 @@ xt_dnat_target_v0(struct sk_buff *skb, const struct xt_action_param *par)
 	struct nf_conn *ct;
 
 	ct = nf_ct_get(skb, &ctinfo);
-	NF_CT_ASSERT(ct != NULL &&
-		     (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED));
+	WARN_ON(!(ct != NULL &&
+		 (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED)));
 
 	xt_nat_convert_range(&range, &mr->range[0]);
 	return nf_nat_setup_info(ct, &range, NF_NAT_MANIP_DST);
@@ -90,9 +91,9 @@ xt_snat_target_v1(struct sk_buff *skb, const struct xt_action_param *par)
 	struct nf_conn *ct;
 
 	ct = nf_ct_get(skb, &ctinfo);
-	NF_CT_ASSERT(ct != NULL &&
-		     (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
-		      ctinfo == IP_CT_RELATED_REPLY));
+	WARN_ON(!(ct != NULL &&
+		 (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED ||
+		  ctinfo == IP_CT_RELATED_REPLY)));
 
 	return nf_nat_setup_info(ct, range, NF_NAT_MANIP_SRC);
 }
@@ -105,8 +106,8 @@ xt_dnat_target_v1(struct sk_buff *skb, const struct xt_action_param *par)
 	struct nf_conn *ct;
 
 	ct = nf_ct_get(skb, &ctinfo);
-	NF_CT_ASSERT(ct != NULL &&
-		     (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED));
+	WARN_ON(!(ct != NULL &&
+		 (ctinfo == IP_CT_NEW || ctinfo == IP_CT_RELATED)));
 
 	return nf_nat_setup_info(ct, range, NF_NAT_MANIP_DST);
 }

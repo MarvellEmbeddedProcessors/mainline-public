@@ -17,11 +17,13 @@
 #include <linux/module.h>
 #include <linux/of_platform.h>
 #include <linux/platform_device.h>
+#include <linux/reset.h>
 #include <linux/spinlock.h>
 #include <linux/types.h>
 
 #include <linux/iio/iio.h>
 #include <linux/iio/driver.h>
+#include <linux/iopoll.h>
 
 #define ASPEED_RESOLUTION_BITS		10
 #define ASPEED_CLOCKS_PER_SAMPLE	12
@@ -38,19 +40,26 @@
 
 #define ASPEED_ENGINE_ENABLE		BIT(0)
 
+#define ASPEED_ADC_CTRL_INIT_RDY	BIT(8)
+
+#define ASPEED_ADC_INIT_POLLING_TIME	500
+#define ASPEED_ADC_INIT_TIMEOUT		500000
+
 struct aspeed_adc_model_data {
 	const char *model_name;
 	unsigned int min_sampling_rate;	// Hz
 	unsigned int max_sampling_rate;	// Hz
 	unsigned int vref_voltage;	// mV
+	bool wait_init_sequence;
 };
 
 struct aspeed_adc_data {
-	struct device	*dev;
-	void __iomem	*base;
-	spinlock_t	clk_lock;
-	struct clk_hw	*clk_prescaler;
-	struct clk_hw	*clk_scaler;
+	struct device		*dev;
+	void __iomem		*base;
+	spinlock_t		clk_lock;
+	struct clk_hw		*clk_prescaler;
+	struct clk_hw		*clk_scaler;
+	struct reset_control	*rst;
 };
 
 #define ASPEED_CHAN(_idx, _data_reg_addr) {			\
@@ -158,7 +167,6 @@ static int aspeed_adc_reg_access(struct iio_dev *indio_dev,
 }
 
 static const struct iio_info aspeed_adc_iio_info = {
-	.driver_module = THIS_MODULE,
 	.read_raw = aspeed_adc_read_raw,
 	.write_raw = aspeed_adc_write_raw,
 	.debugfs_reg_access = aspeed_adc_reg_access,
@@ -211,6 +219,33 @@ static int aspeed_adc_probe(struct platform_device *pdev)
 		goto scaler_error;
 	}
 
+	data->rst = devm_reset_control_get_exclusive(&pdev->dev, NULL);
+	if (IS_ERR(data->rst)) {
+		dev_err(&pdev->dev,
+			"invalid or missing reset controller device tree entry");
+		ret = PTR_ERR(data->rst);
+		goto reset_error;
+	}
+	reset_control_deassert(data->rst);
+
+	model_data = of_device_get_match_data(&pdev->dev);
+
+	if (model_data->wait_init_sequence) {
+		/* Enable engine in normal mode. */
+		writel(ASPEED_OPERATION_MODE_NORMAL | ASPEED_ENGINE_ENABLE,
+		       data->base + ASPEED_REG_ENGINE_CONTROL);
+
+		/* Wait for initial sequence complete. */
+		ret = readl_poll_timeout(data->base + ASPEED_REG_ENGINE_CONTROL,
+					 adc_engine_control_reg_val,
+					 adc_engine_control_reg_val &
+					 ASPEED_ADC_CTRL_INIT_RDY,
+					 ASPEED_ADC_INIT_POLLING_TIME,
+					 ASPEED_ADC_INIT_TIMEOUT);
+		if (ret)
+			goto poll_timeout_error;
+	}
+
 	/* Start all channels in normal mode. */
 	ret = clk_prepare_enable(data->clk_scaler->clk);
 	if (ret)
@@ -240,8 +275,10 @@ iio_register_error:
 		data->base + ASPEED_REG_ENGINE_CONTROL);
 	clk_disable_unprepare(data->clk_scaler->clk);
 clk_enable_error:
+poll_timeout_error:
+	reset_control_assert(data->rst);
+reset_error:
 	clk_hw_unregister_divider(data->clk_scaler);
-
 scaler_error:
 	clk_hw_unregister_divider(data->clk_prescaler);
 	return ret;
@@ -256,6 +293,7 @@ static int aspeed_adc_remove(struct platform_device *pdev)
 	writel(ASPEED_OPERATION_MODE_POWER_DOWN,
 		data->base + ASPEED_REG_ENGINE_CONTROL);
 	clk_disable_unprepare(data->clk_scaler->clk);
+	reset_control_assert(data->rst);
 	clk_hw_unregister_divider(data->clk_scaler);
 	clk_hw_unregister_divider(data->clk_prescaler);
 
@@ -274,6 +312,7 @@ static const struct aspeed_adc_model_data ast2500_model_data = {
 	.vref_voltage = 1800, // mV
 	.min_sampling_rate = 1,
 	.max_sampling_rate = 1000000,
+	.wait_init_sequence = true,
 };
 
 static const struct of_device_id aspeed_adc_matches[] = {

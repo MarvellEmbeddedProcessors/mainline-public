@@ -118,6 +118,7 @@ struct meson_clk_mpll {
 	struct parm sdm_en;
 	struct parm n2;
 	struct parm en;
+	struct parm ssen;
 	spinlock_t *lock;
 };
 
@@ -133,7 +134,7 @@ struct meson_clk_audio_divider {
 struct clk_gate _name = { 						\
 	.reg = (void __iomem *) _reg, 					\
 	.bit_idx = (_bit), 						\
-	.lock = &clk_lock,						\
+	.lock = &meson_clk_lock,					\
 	.hw.init = &(struct clk_init_data) { 				\
 		.name = #_name,					\
 		.ops = &clk_gate_ops,					\

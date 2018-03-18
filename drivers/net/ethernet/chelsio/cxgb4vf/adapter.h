@@ -92,6 +92,7 @@ struct sge_rspq;
  */
 struct port_info {
 	struct adapter *adapter;	/* our adapter */
+	u32 vlan_id;			/* vlan id for VST */
 	u16 viid;			/* virtual interface ID */
 	s16 xact_addr_filt;		/* index of our MAC address filter */
 	u16 rss_size;			/* size of VI's RSS table slice */
@@ -408,6 +409,7 @@ enum { /* adapter flags */
 	USING_MSI          = (1UL << 1),
 	USING_MSIX         = (1UL << 2),
 	QUEUES_BOUND       = (1UL << 3),
+	ROOT_NO_RELAXED_ORDERING = (1UL << 4),
 };
 
 /*

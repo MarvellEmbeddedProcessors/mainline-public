@@ -26,14 +26,17 @@
 #include <linux/ip.h>
 #include <linux/in.h>
 #include <linux/skbuff.h>
+#include <linux/jhash.h>
 
 #include <net/inet_sock.h>
 #include <net/route.h>
 #include <net/snmp.h>
 #include <net/flow.h>
 #include <net/flow_dissector.h>
+#include <net/netns/hash.h>
 
 #define IPV4_MAX_PMTU		65535U		/* RFC 2675, Section 5.1 */
+#define IPV4_MIN_MTU		68			/* RFC 791 */
 
 struct sock;
 
@@ -77,6 +80,16 @@ struct ipcm_cookie {
 
 #define IPCB(skb) ((struct inet_skb_parm*)((skb)->cb))
 #define PKTINFO_SKB_CB(skb) ((struct in_pktinfo *)((skb)->cb))
+
+/* return enslaved device index if relevant */
+static inline int inet_sdif(struct sk_buff *skb)
+{
+#if IS_ENABLED(CONFIG_NET_L3_MASTER_DEV)
+	if (skb && ipv4_l3mdev_skb(IPCB(skb)->flags))
+		return IPCB(skb)->iif;
+#endif
+	return 0;
+}
 
 struct ip_ra_chain {
 	struct ip_ra_chain __rcu *next;
@@ -173,15 +186,15 @@ int ip4_datagram_connect(struct sock *sk, struct sockaddr *uaddr, int addr_len);
 void ip4_datagram_release_cb(struct sock *sk);
 
 struct ip_reply_arg {
-	struct kvec iov[1];   
+	struct kvec iov[1];
 	int	    flags;
 	__wsum 	    csum;
 	int	    csumoffset; /* u16 offset of csum in iov[0].iov_base */
-				/* -1 if not needed */ 
+				/* -1 if not needed */
 	int	    bound_dev_if;
 	u8  	    tos;
 	kuid_t	    uid;
-}; 
+};
 
 #define IP_REPLY_ARG_NOSRCCHECK 1
 
@@ -352,7 +365,7 @@ static inline unsigned int ip_dst_mtu_maybe_forward(const struct dst_entry *dst,
 	    !forwarding)
 		return dst_mtu(dst);
 
-	return min(dst->dev->mtu, IP_MAX_MTU);
+	return min(READ_ONCE(dst->dev->mtu), IP_MAX_MTU);
 }
 
 static inline unsigned int ip_skb_dst_mtu(struct sock *sk,
@@ -364,7 +377,7 @@ static inline unsigned int ip_skb_dst_mtu(struct sock *sk,
 		return ip_dst_mtu_maybe_forward(skb_dst(skb), forwarding);
 	}
 
-	return min(skb_dst(skb)->dev->mtu, IP_MAX_MTU);
+	return min(READ_ONCE(skb_dst(skb)->dev->mtu), IP_MAX_MTU);
 }
 
 u32 ip_idents_reserve(u32 hash, int segs);
@@ -511,6 +524,13 @@ static inline unsigned int ipv4_addr_hash(__be32 ip)
 	return (__force unsigned int) ip;
 }
 
+static inline u32 ipv4_portaddr_hash(const struct net *net,
+				     __be32 saddr,
+				     unsigned int port)
+{
+	return jhash_1word((__force u32)saddr, net_hash_mix(net)) ^ port;
+}
+
 bool ip_call_ra_chain(struct sk_buff *skb);
 
 /*
@@ -557,21 +577,22 @@ int ip_frag_mem(struct net *net);
 /*
  *	Functions provided by ip_forward.c
  */
- 
+
 int ip_forward(struct sk_buff *skb);
- 
+
 /*
  *	Functions provided by ip_options.c
  */
- 
+
 void ip_options_build(struct sk_buff *skb, struct ip_options *opt,
 		      __be32 daddr, struct rtable *rt, int is_frag);
 
-int __ip_options_echo(struct ip_options *dopt, struct sk_buff *skb,
-		      const struct ip_options *sopt);
-static inline int ip_options_echo(struct ip_options *dopt, struct sk_buff *skb)
+int __ip_options_echo(struct net *net, struct ip_options *dopt,
+		      struct sk_buff *skb, const struct ip_options *sopt);
+static inline int ip_options_echo(struct net *net, struct ip_options *dopt,
+				  struct sk_buff *skb)
 {
-	return __ip_options_echo(dopt, skb, &IPCB(skb)->opt);
+	return __ip_options_echo(net, dopt, skb, &IPCB(skb)->opt);
 }
 
 void ip_options_fragment(struct sk_buff *skb);

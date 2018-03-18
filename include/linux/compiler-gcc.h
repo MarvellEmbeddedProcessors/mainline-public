@@ -1,4 +1,5 @@
-#ifndef __LINUX_COMPILER_H
+/* SPDX-License-Identifier: GPL-2.0 */
+#ifndef __LINUX_COMPILER_TYPES_H
 #error "Please don't include <linux/compiler-gcc.h> directly, include <linux/compiler.h> instead."
 #endif
 
@@ -91,6 +92,10 @@
 #define __packed	__attribute__((packed))
 #define __weak		__attribute__((weak))
 #define __alias(symbol)	__attribute__((alias(#symbol)))
+
+#ifdef RETPOLINE
+#define __noretpoline __attribute__((indirect_branch("keep")))
+#endif
 
 /*
  * it doesn't make sense on ARM (currently the only user of __naked)
@@ -193,6 +198,11 @@
 #endif /* __CHECKER__ */
 #endif /* GCC_VERSION >= 40300 */
 
+#if GCC_VERSION >= 40400
+#define __optimize(level)	__attribute__((__optimize__(level)))
+#define __nostackprotector	__optimize("no-stack-protector")
+#endif /* GCC_VERSION >= 40400 */
+
 #if GCC_VERSION >= 40500
 
 #ifndef __CHECKER__
@@ -201,16 +211,14 @@
 #endif
 #endif
 
-#ifdef CONFIG_STACK_VALIDATION
-#define annotate_unreachable() ({					\
-	asm("%c0:\t\n"							\
-	    ".pushsection .discard.unreachable\t\n"			\
-	    ".long %c0b - .\t\n"					\
-	    ".popsection\t\n" : : "i" (__LINE__));			\
-})
-#else
-#define annotate_unreachable()
-#endif
+/*
+ * calling noreturn functions, __builtin_unreachable() and __builtin_trap()
+ * confuse the stack allocation in gcc, leading to overly large stack
+ * frames, see https://gcc.gnu.org/bugzilla/show_bug.cgi?id=82365
+ *
+ * Adding an empty inline assembly before it works around the problem
+ */
+#define barrier_before_unreachable() asm volatile("")
 
 /*
  * Mark a position in code as unreachable.  This can be used to
@@ -222,12 +230,16 @@
  * unreleased.  Really, we need to have autoconf for the kernel.
  */
 #define unreachable() \
-	do { annotate_unreachable(); __builtin_unreachable(); } while (0)
+	do {					\
+		annotate_unreachable();		\
+		barrier_before_unreachable();	\
+		__builtin_unreachable();	\
+	} while (0)
 
 /* Mark a function definition as prohibited from being cloned. */
 #define __noclone	__attribute__((__noclone__, __optimize__("no-tracer")))
 
-#ifdef RANDSTRUCT_PLUGIN
+#if defined(RANDSTRUCT_PLUGIN) && !defined(__CHECKER__)
 #define __randomize_layout __attribute__((randomize_layout))
 #define __no_randomize_layout __attribute__((no_randomize_layout))
 #endif

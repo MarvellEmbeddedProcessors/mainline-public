@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * Prolific PL2303 USB to serial adaptor driver
  *
@@ -5,10 +6,6 @@
  * Copyright (C) 2003 IBM Corp.
  *
  * Original driver for 2.2.x by anonymous
- *
- *	This program is free software; you can redistribute it and/or
- *	modify it under the terms of the GNU General Public License version
- *	2 as published by the Free Software Foundation.
  *
  * See Documentation/usb/usb-serial.txt for more information on using this
  * driver
@@ -41,6 +38,7 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_RSAQ2) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_DCU11) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_RSAQ3) },
+	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_CHILITAG) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_PHAROS) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_ALDIGA) },
 	{ USB_DEVICE(PL2303_VENDOR_ID, PL2303_PRODUCT_ID_MMX) },
@@ -51,6 +49,8 @@ static const struct usb_device_id id_table[] = {
 	{ USB_DEVICE(IODATA_VENDOR_ID, IODATA_PRODUCT_ID) },
 	{ USB_DEVICE(IODATA_VENDOR_ID, IODATA_PRODUCT_ID_RSAQ5) },
 	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_ID),
+		.driver_info = PL2303_QUIRK_ENDPOINT_HACK },
+	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_UC485),
 		.driver_info = PL2303_QUIRK_ENDPOINT_HACK },
 	{ USB_DEVICE(ATEN_VENDOR_ID, ATEN_PRODUCT_ID2) },
 	{ USB_DEVICE(ATEN_VENDOR_ID2, ATEN_PRODUCT_ID) },
@@ -1023,4 +1023,4 @@ static struct usb_serial_driver * const serial_drivers[] = {
 module_usb_serial_driver(serial_drivers, id_table);
 
 MODULE_DESCRIPTION("Prolific PL2303 USB to serial adaptor driver");
-MODULE_LICENSE("GPL");
+MODULE_LICENSE("GPL v2");

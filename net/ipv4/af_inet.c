@@ -121,6 +121,7 @@
 #endif
 #include <net/l3mdev.h>
 
+#include <trace/events/sock.h>
 
 /* The inetsw table contains everything that inet_create needs to
  * build a new socket.
@@ -195,7 +196,7 @@ int inet_listen(struct socket *sock, int backlog)
 {
 	struct sock *sk = sock->sk;
 	unsigned char old_state;
-	int err;
+	int err, tcp_fastopen;
 
 	lock_sock(sk);
 
@@ -217,11 +218,12 @@ int inet_listen(struct socket *sock, int backlog)
 		 * because the socket was in TCP_LISTEN state previously but
 		 * was shutdown() rather than close().
 		 */
-		if ((sysctl_tcp_fastopen & TFO_SERVER_WO_SOCKOPT1) &&
-		    (sysctl_tcp_fastopen & TFO_SERVER_ENABLE) &&
+		tcp_fastopen = sock_net(sk)->ipv4.sysctl_tcp_fastopen;
+		if ((tcp_fastopen & TFO_SERVER_WO_SOCKOPT1) &&
+		    (tcp_fastopen & TFO_SERVER_ENABLE) &&
 		    !inet_csk(sk)->icsk_accept_queue.fastopenq.max_qlen) {
 			fastopen_queue_tune(sk, backlog);
-			tcp_fastopen_init_key_once(true);
+			tcp_fastopen_init_key_once(sock_net(sk));
 		}
 
 		err = inet_csk_listen_start(sk, backlog);
@@ -721,7 +723,7 @@ EXPORT_SYMBOL(inet_accept);
  *	This does both peername and sockname.
  */
 int inet_getname(struct socket *sock, struct sockaddr *uaddr,
-			int *uaddr_len, int peer)
+			int peer)
 {
 	struct sock *sk		= sock->sk;
 	struct inet_sock *inet	= inet_sk(sk);
@@ -743,8 +745,7 @@ int inet_getname(struct socket *sock, struct sockaddr *uaddr,
 		sin->sin_addr.s_addr = addr;
 	}
 	memset(sin->sin_zero, 0, sizeof(sin->sin_zero));
-	*uaddr_len = sizeof(*sin);
-	return 0;
+	return sizeof(*sin);
 }
 EXPORT_SYMBOL(inet_getname);
 
@@ -788,7 +789,8 @@ int inet_recvmsg(struct socket *sock, struct msghdr *msg, size_t size,
 	int addr_len = 0;
 	int err;
 
-	sock_rps_record_flow(sk);
+	if (likely(!(flags & MSG_ERRQUEUE)))
+		sock_rps_record_flow(sk);
 
 	err = sk->sk_prot->recvmsg(sk, msg, size, flags & MSG_DONTWAIT,
 				   flags & ~MSG_DONTWAIT, &addr_len);
@@ -825,7 +827,8 @@ int inet_shutdown(struct socket *sock, int how)
 	case TCP_CLOSE:
 		err = -ENOTCONN;
 		/* Hack to wake up other listeners, who can poll for
-		   POLLHUP, even on eg. unconnected UDP sockets -- RR */
+		   EPOLLHUP, even on eg. unconnected UDP sockets -- RR */
+		/* fall through */
 	default:
 		sk->sk_shutdown |= how;
 		if (sk->sk_prot->shutdown)
@@ -839,7 +842,7 @@ int inet_shutdown(struct socket *sock, int how)
 	case TCP_LISTEN:
 		if (!(how & RCV_SHUTDOWN))
 			break;
-		/* Fall through */
+		/* fall through */
 	case TCP_SYN_SENT:
 		err = sk->sk_prot->disconnect(sk, O_NONBLOCK);
 		sock->state = err ? SS_DISCONNECTING : SS_UNCONNECTED;
@@ -868,6 +871,9 @@ int inet_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 	struct sock *sk = sock->sk;
 	int err = 0;
 	struct net *net = sock_net(sk);
+	void __user *p = (void __user *)arg;
+	struct ifreq ifr;
+	struct rtentry rt;
 
 	switch (cmd) {
 	case SIOCGSTAMP:
@@ -878,8 +884,12 @@ int inet_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		break;
 	case SIOCADDRT:
 	case SIOCDELRT:
+		if (copy_from_user(&rt, p, sizeof(struct rtentry)))
+			return -EFAULT;
+		err = ip_rt_ioctl(net, cmd, &rt);
+		break;
 	case SIOCRTMSG:
-		err = ip_rt_ioctl(net, cmd, (void __user *)arg);
+		err = -EINVAL;
 		break;
 	case SIOCDARP:
 	case SIOCGARP:
@@ -887,17 +897,26 @@ int inet_ioctl(struct socket *sock, unsigned int cmd, unsigned long arg)
 		err = arp_ioctl(net, cmd, (void __user *)arg);
 		break;
 	case SIOCGIFADDR:
-	case SIOCSIFADDR:
 	case SIOCGIFBRDADDR:
-	case SIOCSIFBRDADDR:
 	case SIOCGIFNETMASK:
-	case SIOCSIFNETMASK:
 	case SIOCGIFDSTADDR:
+	case SIOCGIFPFLAGS:
+		if (copy_from_user(&ifr, p, sizeof(struct ifreq)))
+			return -EFAULT;
+		err = devinet_ioctl(net, cmd, &ifr);
+		if (!err && copy_to_user(p, &ifr, sizeof(struct ifreq)))
+			err = -EFAULT;
+		break;
+
+	case SIOCSIFADDR:
+	case SIOCSIFBRDADDR:
+	case SIOCSIFNETMASK:
 	case SIOCSIFDSTADDR:
 	case SIOCSIFPFLAGS:
-	case SIOCGIFPFLAGS:
 	case SIOCSIFFLAGS:
-		err = devinet_ioctl(net, cmd, (void __user *)arg);
+		if (copy_from_user(&ifr, p, sizeof(struct ifreq)))
+			return -EFAULT;
+		err = devinet_ioctl(net, cmd, &ifr);
 		break;
 	default:
 		if (sk->sk_prot->ioctl)
@@ -944,6 +963,8 @@ const struct proto_ops inet_stream_ops = {
 	.sendpage	   = inet_sendpage,
 	.splice_read	   = tcp_splice_read,
 	.read_sock	   = tcp_read_sock,
+	.sendmsg_locked    = tcp_sendmsg_locked,
+	.sendpage_locked   = tcp_sendpage_locked,
 	.peek_len	   = tcp_peek_len,
 #ifdef CONFIG_COMPAT
 	.compat_setsockopt = compat_sock_common_setsockopt,
@@ -1215,6 +1236,19 @@ int inet_sk_rebuild_header(struct sock *sk)
 	return err;
 }
 EXPORT_SYMBOL(inet_sk_rebuild_header);
+
+void inet_sk_set_state(struct sock *sk, int state)
+{
+	trace_inet_sock_set_state(sk, sk->sk_state, state);
+	sk->sk_state = state;
+}
+EXPORT_SYMBOL(inet_sk_set_state);
+
+void inet_sk_state_store(struct sock *sk, int newstate)
+{
+	trace_inet_sock_set_state(sk, sk->sk_state, newstate);
+	smp_store_release(&sk->sk_state, newstate);
+}
 
 struct sk_buff *inet_gso_segment(struct sk_buff *skb,
 				 netdev_features_t features)
@@ -1602,6 +1636,9 @@ static const struct net_protocol igmp_protocol = {
 };
 #endif
 
+/* thinking of making this const? Don't.
+ * early_demux can change based on sysctl.
+ */
 static struct net_protocol tcp_protocol = {
 	.early_demux	=	tcp_v4_early_demux,
 	.early_demux_handler =  tcp_v4_early_demux,
@@ -1612,6 +1649,9 @@ static struct net_protocol tcp_protocol = {
 	.icmp_strict_tag_validation = 1,
 };
 
+/* thinking of making this const? Don't.
+ * early_demux can change based on sysctl.
+ */
 static struct net_protocol udp_protocol = {
 	.early_demux =	udp_v4_early_demux,
 	.early_demux_handler =	udp_v4_early_demux,
@@ -1695,6 +1735,7 @@ static __net_exit void ipv4_mib_exit_net(struct net *net)
 static __net_initdata struct pernet_operations ipv4_mib_ops = {
 	.init = ipv4_mib_init_net,
 	.exit = ipv4_mib_exit_net,
+	.async = true,
 };
 
 static int __init init_ipv4_mibs(void)
@@ -1731,6 +1772,13 @@ static __net_init int inet_init_net(struct net *net)
 	net->ipv4.sysctl_ip_prot_sock = PROT_SOCK;
 #endif
 
+	/* Some igmp sysctl, whose values are always used */
+	net->ipv4.sysctl_igmp_max_memberships = 20;
+	net->ipv4.sysctl_igmp_max_msf = 10;
+	/* IGMP reports for link-local multicast groups are enabled by default */
+	net->ipv4.sysctl_igmp_llm_reports = 1;
+	net->ipv4.sysctl_igmp_qrv = 2;
+
 	return 0;
 }
 
@@ -1741,6 +1789,7 @@ static __net_exit void inet_exit_net(struct net *net)
 static __net_initdata struct pernet_operations af_inet_ops = {
 	.init = inet_init_net,
 	.exit = inet_exit_net,
+	.async = true,
 };
 
 static int __init init_inet_pernet_ops(void)
@@ -1771,6 +1820,11 @@ static const struct net_offload ipip_offload = {
 	},
 };
 
+static int __init ipip_offload_init(void)
+{
+	return inet_add_offload(&ipip_offload, IPPROTO_IPIP);
+}
+
 static int __init ipv4_offload_init(void)
 {
 	/*
@@ -1780,9 +1834,10 @@ static int __init ipv4_offload_init(void)
 		pr_crit("%s: Cannot add UDP protocol offload\n", __func__);
 	if (tcpv4_offload_init() < 0)
 		pr_crit("%s: Cannot add TCP protocol offload\n", __func__);
+	if (ipip_offload_init() < 0)
+		pr_crit("%s: Cannot add IPIP protocol offload\n", __func__);
 
 	dev_add_offload(&ip_packet_offload);
-	inet_add_offload(&ipip_offload, IPPROTO_IPIP);
 	return 0;
 }
 

@@ -25,7 +25,7 @@
 #include <linux/netfilter/xt_LOG.h>
 #include <net/netfilter/nf_log.h>
 
-static struct nf_loginfo default_loginfo = {
+static const struct nf_loginfo default_loginfo = {
 	.type	= NF_LOG_TYPE_LOG,
 	.u = {
 		.log = {
@@ -390,6 +390,7 @@ static void __net_exit nf_log_ipv6_net_exit(struct net *net)
 static struct pernet_operations nf_log_ipv6_net_ops = {
 	.init = nf_log_ipv6_net_init,
 	.exit = nf_log_ipv6_net_exit,
+	.async = true,
 };
 
 static int __init nf_log_ipv6_init(void)

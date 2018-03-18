@@ -62,7 +62,12 @@ struct ixgbevf_tx_buffer {
 struct ixgbevf_rx_buffer {
 	dma_addr_t dma;
 	struct page *page;
-	unsigned int page_offset;
+#if (BITS_PER_LONG > 32) || (PAGE_SIZE >= 65536)
+	__u32 page_offset;
+#else
+	__u16 page_offset;
+#endif
+	__u16 pagecnt_bias;
 };
 
 struct ixgbevf_stats {
@@ -79,23 +84,20 @@ struct ixgbevf_tx_queue_stats {
 struct ixgbevf_rx_queue_stats {
 	u64 alloc_rx_page_failed;
 	u64 alloc_rx_buff_failed;
+	u64 alloc_rx_page;
 	u64 csum_err;
 };
 
 enum ixgbevf_ring_state_t {
+	__IXGBEVF_RX_3K_BUFFER,
+	__IXGBEVF_RX_BUILD_SKB_ENABLED,
 	__IXGBEVF_TX_DETECT_HANG,
 	__IXGBEVF_HANG_CHECK_ARMED,
 };
 
-#define check_for_tx_hang(ring) \
-	test_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
-#define set_check_for_tx_hang(ring) \
-	set_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
-#define clear_check_for_tx_hang(ring) \
-	clear_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
-
 struct ixgbevf_ring {
 	struct ixgbevf_ring *next;
+	struct ixgbevf_q_vector *q_vector;	/* backpointer to q_vector */
 	struct net_device *netdev;
 	struct device *dev;
 	void *desc;			/* descriptor ring memory */
@@ -127,7 +129,7 @@ struct ixgbevf_ring {
 	 */
 	u16 reg_idx;
 	int queue_index; /* needed for multiqueue queue management */
-};
+} ____cacheline_internodealigned_in_smp;
 
 /* How many Rx Buffers do we bundle into one write to the hardware ? */
 #define IXGBEVF_RX_BUFFER_WRITE	16	/* Must be power of 2 */
@@ -150,11 +152,19 @@ struct ixgbevf_ring {
 /* Supported Rx Buffer Sizes */
 #define IXGBEVF_RXBUFFER_256	256    /* Used for packet split */
 #define IXGBEVF_RXBUFFER_2048	2048
+#define IXGBEVF_RXBUFFER_3072	3072
 
 #define IXGBEVF_RX_HDR_SIZE	IXGBEVF_RXBUFFER_256
-#define IXGBEVF_RX_BUFSZ	IXGBEVF_RXBUFFER_2048
 
 #define MAXIMUM_ETHERNET_VLAN_SIZE (VLAN_ETH_FRAME_LEN + ETH_FCS_LEN)
+
+#define IXGBEVF_SKB_PAD		(NET_SKB_PAD + NET_IP_ALIGN)
+#if (PAGE_SIZE < 8192)
+#define IXGBEVF_MAX_FRAME_BUILD_SKB \
+	(SKB_WITH_OVERHEAD(IXGBEVF_RXBUFFER_2048) - IXGBEVF_SKB_PAD)
+#else
+#define IXGBEVF_MAX_FRAME_BUILD_SKB	IXGBEVF_RXBUFFER_2048
+#endif
 
 #define IXGBE_TX_FLAGS_CSUM		BIT(0)
 #define IXGBE_TX_FLAGS_VLAN		BIT(1)
@@ -163,6 +173,50 @@ struct ixgbevf_ring {
 #define IXGBE_TX_FLAGS_VLAN_MASK	0xffff0000
 #define IXGBE_TX_FLAGS_VLAN_PRIO_MASK	0x0000e000
 #define IXGBE_TX_FLAGS_VLAN_SHIFT	16
+
+#define ring_uses_large_buffer(ring) \
+	test_bit(__IXGBEVF_RX_3K_BUFFER, &(ring)->state)
+#define set_ring_uses_large_buffer(ring) \
+	set_bit(__IXGBEVF_RX_3K_BUFFER, &(ring)->state)
+#define clear_ring_uses_large_buffer(ring) \
+	clear_bit(__IXGBEVF_RX_3K_BUFFER, &(ring)->state)
+
+#define ring_uses_build_skb(ring) \
+	test_bit(__IXGBEVF_RX_BUILD_SKB_ENABLED, &(ring)->state)
+#define set_ring_build_skb_enabled(ring) \
+	set_bit(__IXGBEVF_RX_BUILD_SKB_ENABLED, &(ring)->state)
+#define clear_ring_build_skb_enabled(ring) \
+	clear_bit(__IXGBEVF_RX_BUILD_SKB_ENABLED, &(ring)->state)
+
+static inline unsigned int ixgbevf_rx_bufsz(struct ixgbevf_ring *ring)
+{
+#if (PAGE_SIZE < 8192)
+	if (ring_uses_large_buffer(ring))
+		return IXGBEVF_RXBUFFER_3072;
+
+	if (ring_uses_build_skb(ring))
+		return IXGBEVF_MAX_FRAME_BUILD_SKB;
+#endif
+	return IXGBEVF_RXBUFFER_2048;
+}
+
+static inline unsigned int ixgbevf_rx_pg_order(struct ixgbevf_ring *ring)
+{
+#if (PAGE_SIZE < 8192)
+	if (ring_uses_large_buffer(ring))
+		return 1;
+#endif
+	return 0;
+}
+
+#define ixgbevf_rx_pg_size(_ring) (PAGE_SIZE << ixgbevf_rx_pg_order(_ring))
+
+#define check_for_tx_hang(ring) \
+	test_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
+#define set_check_for_tx_hang(ring) \
+	set_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
+#define clear_check_for_tx_hang(ring) \
+	clear_bit(__IXGBEVF_TX_DETECT_HANG, &(ring)->state)
 
 struct ixgbevf_ring_container {
 	struct ixgbevf_ring *ring;	/* pointer to linked list of rings */
@@ -188,7 +242,11 @@ struct ixgbevf_q_vector {
 	u16 itr; /* Interrupt throttle rate written to EITR */
 	struct napi_struct napi;
 	struct ixgbevf_ring_container rx, tx;
+	struct rcu_head rcu;    /* to avoid race with update stats on free */
 	char name[IFNAMSIZ + 9];
+
+	/* for dynamic allocation of rings associated with this q_vector */
+	struct ixgbevf_ring ring[0] ____cacheline_internodealigned_in_smp;
 #ifdef CONFIG_NET_RX_BUSY_POLL
 	unsigned int state;
 #define IXGBEVF_QV_STATE_IDLE		0
@@ -260,6 +318,9 @@ static inline void ixgbevf_write_tail(struct ixgbevf_ring *ring, u32 value)
 #define MIN_MSIX_Q_VECTORS	1
 #define MIN_MSIX_COUNT		(MIN_MSIX_Q_VECTORS + NON_Q_VECTORS)
 
+#define IXGBEVF_RX_DMA_ATTR \
+	(DMA_ATTR_SKIP_CPU_SYNC | DMA_ATTR_WEAK_ORDERING)
+
 /* board specific private data structure */
 struct ixgbevf_adapter {
 	/* this field must be first, see ixgbevf_process_skb_fields */
@@ -287,8 +348,9 @@ struct ixgbevf_adapter {
 	u64 hw_csum_rx_error;
 	u64 hw_rx_no_dma_resources;
 	int num_msix_vectors;
-	u32 alloc_rx_page_failed;
-	u32 alloc_rx_buff_failed;
+	u64 alloc_rx_page_failed;
+	u64 alloc_rx_buff_failed;
+	u64 alloc_rx_page;
 
 	struct msix_entry *msix_entries;
 
@@ -321,6 +383,8 @@ struct ixgbevf_adapter {
 
 	u32 *rss_key;
 	u8 rss_indir_tbl[IXGBEVF_X550_VFRETA_SIZE];
+	u32 flags;
+#define IXGBEVF_FLAGS_LEGACY_RX		BIT(1)
 };
 
 enum ixbgevf_state_t {

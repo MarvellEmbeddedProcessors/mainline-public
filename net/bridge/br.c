@@ -112,7 +112,7 @@ static int br_device_event(struct notifier_block *unused, unsigned long event, v
 	/* Events that may cause spanning tree to refresh */
 	if (event == NETDEV_CHANGEADDR || event == NETDEV_UP ||
 	    event == NETDEV_CHANGE || event == NETDEV_DOWN)
-		br_ifinfo_notify(RTM_NEWLINK, p);
+		br_ifinfo_notify(RTM_NEWLINK, NULL, p);
 
 	return NOTIFY_DONE;
 }
@@ -188,6 +188,7 @@ static void __net_exit br_net_exit(struct net *net)
 
 static struct pernet_operations br_net_ops = {
 	.exit	= br_net_exit,
+	.async	= true,
 };
 
 static const struct stp_proto br_stp_proto = {

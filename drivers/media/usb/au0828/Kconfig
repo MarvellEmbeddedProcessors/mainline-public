@@ -1,7 +1,7 @@
 
 config VIDEO_AU0828
 	tristate "Auvitek AU0828 support"
-	depends on I2C && INPUT && DVB_CORE && USB
+	depends on I2C && INPUT && DVB_CORE && USB && VIDEO_V4L2
 	select I2C_ALGOBIT
 	select VIDEO_TVEEPROM
 	select VIDEOBUF2_VMALLOC
@@ -31,6 +31,7 @@ config VIDEO_AU0828_V4L2
 config VIDEO_AU0828_RC
 	bool "AU0828 Remote Controller support"
 	depends on RC_CORE
+	depends on !(RC_CORE=m && VIDEO_AU0828=y)
 	depends on VIDEO_AU0828
 	---help---
 	   Enables Remote Controller support on au0828 driver.

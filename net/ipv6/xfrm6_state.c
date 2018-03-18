@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 /*
  * xfrm6_state.c: based on xfrm4_state.c
  *
@@ -195,4 +196,3 @@ void xfrm6_state_fini(void)
 {
 	xfrm_state_unregister_afinfo(&xfrm6_state_afinfo);
 }
-

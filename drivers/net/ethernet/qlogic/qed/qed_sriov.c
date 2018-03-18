@@ -153,9 +153,9 @@ static int qed_sp_vf_stop(struct qed_hwfn *p_hwfn,
 	return qed_spq_post(p_hwfn, p_ent, NULL);
 }
 
-static bool qed_iov_is_valid_vfid(struct qed_hwfn *p_hwfn,
-				  int rel_vf_id,
-				  bool b_enabled_only, bool b_non_malicious)
+bool qed_iov_is_valid_vfid(struct qed_hwfn *p_hwfn,
+			   int rel_vf_id,
+			   bool b_enabled_only, bool b_non_malicious)
 {
 	if (!p_hwfn->pf_iov_info) {
 		DP_NOTICE(p_hwfn->cdev, "No iov info\n");
@@ -1621,7 +1621,7 @@ static void qed_iov_vf_mbx_acquire(struct qed_hwfn *p_hwfn,
 	/* fill in pfdev info */
 	pfdev_info->chip_num = p_hwfn->cdev->chip_num;
 	pfdev_info->db_size = 0;
-	pfdev_info->indices_per_sb = PIS_PER_SB;
+	pfdev_info->indices_per_sb = PIS_PER_SB_E4;
 
 	pfdev_info->capabilities = PFVF_ACQUIRE_CAP_DEFAULT_UNTAGGED |
 				   PFVF_ACQUIRE_CAP_POST_FW_OVERRIDE;
@@ -3400,6 +3400,157 @@ static void qed_iov_vf_mbx_release(struct qed_hwfn *p_hwfn,
 			     length, status);
 }
 
+static void qed_iov_vf_pf_get_coalesce(struct qed_hwfn *p_hwfn,
+				       struct qed_ptt *p_ptt,
+				       struct qed_vf_info *p_vf)
+{
+	struct qed_iov_vf_mbx *mbx = &p_vf->vf_mbx;
+	struct pfvf_read_coal_resp_tlv *p_resp;
+	struct vfpf_read_coal_req_tlv *req;
+	u8 status = PFVF_STATUS_FAILURE;
+	struct qed_vf_queue *p_queue;
+	struct qed_queue_cid *p_cid;
+	u16 coal = 0, qid, i;
+	bool b_is_rx;
+	int rc = 0;
+
+	mbx->offset = (u8 *)mbx->reply_virt;
+	req = &mbx->req_virt->read_coal_req;
+
+	qid = req->qid;
+	b_is_rx = req->is_rx ? true : false;
+
+	if (b_is_rx) {
+		if (!qed_iov_validate_rxq(p_hwfn, p_vf, qid,
+					  QED_IOV_VALIDATE_Q_ENABLE)) {
+			DP_VERBOSE(p_hwfn, QED_MSG_IOV,
+				   "VF[%d]: Invalid Rx queue_id = %d\n",
+				   p_vf->abs_vf_id, qid);
+			goto send_resp;
+		}
+
+		p_cid = qed_iov_get_vf_rx_queue_cid(&p_vf->vf_queues[qid]);
+		rc = qed_get_rxq_coalesce(p_hwfn, p_ptt, p_cid, &coal);
+		if (rc)
+			goto send_resp;
+	} else {
+		if (!qed_iov_validate_txq(p_hwfn, p_vf, qid,
+					  QED_IOV_VALIDATE_Q_ENABLE)) {
+			DP_VERBOSE(p_hwfn, QED_MSG_IOV,
+				   "VF[%d]: Invalid Tx queue_id = %d\n",
+				   p_vf->abs_vf_id, qid);
+			goto send_resp;
+		}
+		for (i = 0; i < MAX_QUEUES_PER_QZONE; i++) {
+			p_queue = &p_vf->vf_queues[qid];
+			if ((!p_queue->cids[i].p_cid) ||
+			    (!p_queue->cids[i].b_is_tx))
+				continue;
+
+			p_cid = p_queue->cids[i].p_cid;
+
+			rc = qed_get_txq_coalesce(p_hwfn, p_ptt, p_cid, &coal);
+			if (rc)
+				goto send_resp;
+			break;
+		}
+	}
+
+	status = PFVF_STATUS_SUCCESS;
+
+send_resp:
+	p_resp = qed_add_tlv(p_hwfn, &mbx->offset, CHANNEL_TLV_COALESCE_READ,
+			     sizeof(*p_resp));
+	p_resp->coal = coal;
+
+	qed_add_tlv(p_hwfn, &mbx->offset, CHANNEL_TLV_LIST_END,
+		    sizeof(struct channel_list_end_tlv));
+
+	qed_iov_send_response(p_hwfn, p_ptt, p_vf, sizeof(*p_resp), status);
+}
+
+static void qed_iov_vf_pf_set_coalesce(struct qed_hwfn *p_hwfn,
+				       struct qed_ptt *p_ptt,
+				       struct qed_vf_info *vf)
+{
+	struct qed_iov_vf_mbx *mbx = &vf->vf_mbx;
+	struct vfpf_update_coalesce *req;
+	u8 status = PFVF_STATUS_FAILURE;
+	struct qed_queue_cid *p_cid;
+	u16 rx_coal, tx_coal;
+	int rc = 0, i;
+	u16 qid;
+
+	req = &mbx->req_virt->update_coalesce;
+
+	rx_coal = req->rx_coal;
+	tx_coal = req->tx_coal;
+	qid = req->qid;
+
+	if (!qed_iov_validate_rxq(p_hwfn, vf, qid,
+				  QED_IOV_VALIDATE_Q_ENABLE) && rx_coal) {
+		DP_VERBOSE(p_hwfn, QED_MSG_IOV,
+			   "VF[%d]: Invalid Rx queue_id = %d\n",
+			   vf->abs_vf_id, qid);
+		goto out;
+	}
+
+	if (!qed_iov_validate_txq(p_hwfn, vf, qid,
+				  QED_IOV_VALIDATE_Q_ENABLE) && tx_coal) {
+		DP_VERBOSE(p_hwfn, QED_MSG_IOV,
+			   "VF[%d]: Invalid Tx queue_id = %d\n",
+			   vf->abs_vf_id, qid);
+		goto out;
+	}
+
+	DP_VERBOSE(p_hwfn,
+		   QED_MSG_IOV,
+		   "VF[%d]: Setting coalesce for VF rx_coal = %d, tx_coal = %d at queue = %d\n",
+		   vf->abs_vf_id, rx_coal, tx_coal, qid);
+
+	if (rx_coal) {
+		p_cid = qed_iov_get_vf_rx_queue_cid(&vf->vf_queues[qid]);
+
+		rc = qed_set_rxq_coalesce(p_hwfn, p_ptt, rx_coal, p_cid);
+		if (rc) {
+			DP_VERBOSE(p_hwfn,
+				   QED_MSG_IOV,
+				   "VF[%d]: Unable to set rx queue = %d coalesce\n",
+				   vf->abs_vf_id, vf->vf_queues[qid].fw_rx_qid);
+			goto out;
+		}
+		vf->rx_coal = rx_coal;
+	}
+
+	if (tx_coal) {
+		struct qed_vf_queue *p_queue = &vf->vf_queues[qid];
+
+		for (i = 0; i < MAX_QUEUES_PER_QZONE; i++) {
+			if (!p_queue->cids[i].p_cid)
+				continue;
+
+			if (!p_queue->cids[i].b_is_tx)
+				continue;
+
+			rc = qed_set_txq_coalesce(p_hwfn, p_ptt, tx_coal,
+						  p_queue->cids[i].p_cid);
+
+			if (rc) {
+				DP_VERBOSE(p_hwfn,
+					   QED_MSG_IOV,
+					   "VF[%d]: Unable to set tx queue coalesce\n",
+					   vf->abs_vf_id);
+				goto out;
+			}
+		}
+		vf->tx_coal = tx_coal;
+	}
+
+	status = PFVF_STATUS_SUCCESS;
+out:
+	qed_iov_prepare_resp(p_hwfn, p_ptt, vf, CHANNEL_TLV_COALESCE_UPDATE,
+			     sizeof(struct pfvf_def_resp_tlv), status);
+}
 static int
 qed_iov_vf_flr_poll_dorq(struct qed_hwfn *p_hwfn,
 			 struct qed_vf_info *p_vf, struct qed_ptt *p_ptt)
@@ -3431,11 +3582,11 @@ static int
 qed_iov_vf_flr_poll_pbf(struct qed_hwfn *p_hwfn,
 			struct qed_vf_info *p_vf, struct qed_ptt *p_ptt)
 {
-	u32 cons[MAX_NUM_VOQS], distance[MAX_NUM_VOQS];
+	u32 cons[MAX_NUM_VOQS_E4], distance[MAX_NUM_VOQS_E4];
 	int i, cnt;
 
 	/* Read initial consumers & producers */
-	for (i = 0; i < MAX_NUM_VOQS; i++) {
+	for (i = 0; i < MAX_NUM_VOQS_E4; i++) {
 		u32 prod;
 
 		cons[i] = qed_rd(p_hwfn, p_ptt,
@@ -3450,7 +3601,7 @@ qed_iov_vf_flr_poll_pbf(struct qed_hwfn *p_hwfn,
 	/* Wait for consumers to pass the producers */
 	i = 0;
 	for (cnt = 0; cnt < 50; cnt++) {
-		for (; i < MAX_NUM_VOQS; i++) {
+		for (; i < MAX_NUM_VOQS_E4; i++) {
 			u32 tmp;
 
 			tmp = qed_rd(p_hwfn, p_ptt,
@@ -3460,7 +3611,7 @@ qed_iov_vf_flr_poll_pbf(struct qed_hwfn *p_hwfn,
 				break;
 		}
 
-		if (i == MAX_NUM_VOQS)
+		if (i == MAX_NUM_VOQS_E4)
 			break;
 
 		msleep(20);
@@ -3724,6 +3875,12 @@ static void qed_iov_process_mbx_req(struct qed_hwfn *p_hwfn,
 			break;
 		case CHANNEL_TLV_UPDATE_TUNN_PARAM:
 			qed_iov_vf_mbx_update_tunn_param(p_hwfn, p_ptt, p_vf);
+			break;
+		case CHANNEL_TLV_COALESCE_UPDATE:
+			qed_iov_vf_pf_set_coalesce(p_hwfn, p_ptt, p_vf);
+			break;
+		case CHANNEL_TLV_COALESCE_READ:
+			qed_iov_vf_pf_get_coalesce(p_hwfn, p_ptt, p_vf);
 			break;
 		}
 	} else if (qed_iov_tlv_supported(mbx->first_tlv.tl.type)) {
@@ -4080,6 +4237,7 @@ qed_iov_bulletin_get_forced_vlan(struct qed_hwfn *p_hwfn, u16 rel_vf_id)
 static int qed_iov_configure_tx_rate(struct qed_hwfn *p_hwfn,
 				     struct qed_ptt *p_ptt, int vfid, int val)
 {
+	struct qed_mcp_link_state *p_link;
 	struct qed_vf_info *vf;
 	u8 abs_vp_id = 0;
 	int rc;
@@ -4092,7 +4250,10 @@ static int qed_iov_configure_tx_rate(struct qed_hwfn *p_hwfn,
 	if (rc)
 		return rc;
 
-	return qed_init_vport_rl(p_hwfn, p_ptt, abs_vp_id, (u32)val);
+	p_link = &QED_LEADING_HWFN(p_hwfn->cdev)->mcp_info->link_output;
+
+	return qed_init_vport_rl(p_hwfn, p_ptt, abs_vp_id, (u32)val,
+				 p_link->speed);
 }
 
 static int

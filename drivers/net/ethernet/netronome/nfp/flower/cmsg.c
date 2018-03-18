@@ -34,18 +34,13 @@
 #include <linux/bitfield.h>
 #include <linux/netdevice.h>
 #include <linux/skbuff.h>
+#include <linux/workqueue.h>
 #include <net/dst_metadata.h>
 
 #include "main.h"
-#include "../nfpcore/nfp_cpp.h"
+#include "../nfp_net.h"
 #include "../nfp_net_repr.h"
 #include "./cmsg.h"
-
-#define nfp_flower_cmsg_warn(app, fmt, args...)				\
-	do {								\
-		if (net_ratelimit())					\
-			nfp_warn((app)->cpp, fmt, ## args);		\
-	} while (0)
 
 static struct nfp_flower_cmsg_hdr *
 nfp_flower_cmsg_get_hdr(struct sk_buff *skb)
@@ -55,14 +50,14 @@ nfp_flower_cmsg_get_hdr(struct sk_buff *skb)
 
 struct sk_buff *
 nfp_flower_cmsg_alloc(struct nfp_app *app, unsigned int size,
-		      enum nfp_flower_cmsg_type_port type)
+		      enum nfp_flower_cmsg_type_port type, gfp_t flag)
 {
 	struct nfp_flower_cmsg_hdr *ch;
 	struct sk_buff *skb;
 
 	size += NFP_FLOWER_CMSG_HLEN;
 
-	skb = nfp_app_ctrl_msg_alloc(app, size, GFP_KERNEL);
+	skb = nfp_app_ctrl_msg_alloc(app, size, flag);
 	if (!skb)
 		return NULL;
 
@@ -75,13 +70,47 @@ nfp_flower_cmsg_alloc(struct nfp_app *app, unsigned int size,
 	return skb;
 }
 
+struct sk_buff *
+nfp_flower_cmsg_mac_repr_start(struct nfp_app *app, unsigned int num_ports)
+{
+	struct nfp_flower_cmsg_mac_repr *msg;
+	struct sk_buff *skb;
+	unsigned int size;
+
+	size = sizeof(*msg) + num_ports * sizeof(msg->ports[0]);
+	skb = nfp_flower_cmsg_alloc(app, size, NFP_FLOWER_CMSG_TYPE_MAC_REPR,
+				    GFP_KERNEL);
+	if (!skb)
+		return NULL;
+
+	msg = nfp_flower_cmsg_get_data(skb);
+	memset(msg->reserved, 0, sizeof(msg->reserved));
+	msg->num_ports = num_ports;
+
+	return skb;
+}
+
+void
+nfp_flower_cmsg_mac_repr_add(struct sk_buff *skb, unsigned int idx,
+			     unsigned int nbi, unsigned int nbi_port,
+			     unsigned int phys_port)
+{
+	struct nfp_flower_cmsg_mac_repr *msg;
+
+	msg = nfp_flower_cmsg_get_data(skb);
+	msg->ports[idx].idx = idx;
+	msg->ports[idx].info = nbi & NFP_FLOWER_CMSG_MAC_REPR_NBI;
+	msg->ports[idx].nbi_port = nbi_port;
+	msg->ports[idx].phys_port = phys_port;
+}
+
 int nfp_flower_cmsg_portmod(struct nfp_repr *repr, bool carrier_ok)
 {
 	struct nfp_flower_cmsg_portmod *msg;
 	struct sk_buff *skb;
 
 	skb = nfp_flower_cmsg_alloc(repr->app, sizeof(*msg),
-				    NFP_FLOWER_CMSG_TYPE_PORT_MOD);
+				    NFP_FLOWER_CMSG_TYPE_PORT_MOD, GFP_KERNEL);
 	if (!skb)
 		return -ENOMEM;
 
@@ -90,6 +119,27 @@ int nfp_flower_cmsg_portmod(struct nfp_repr *repr, bool carrier_ok)
 	msg->reserved = 0;
 	msg->info = carrier_ok;
 	msg->mtu = cpu_to_be16(repr->netdev->mtu);
+
+	nfp_ctrl_tx(repr->app->ctrl, skb);
+
+	return 0;
+}
+
+int nfp_flower_cmsg_portreify(struct nfp_repr *repr, bool exists)
+{
+	struct nfp_flower_cmsg_portreify *msg;
+	struct sk_buff *skb;
+
+	skb = nfp_flower_cmsg_alloc(repr->app, sizeof(*msg),
+				    NFP_FLOWER_CMSG_TYPE_PORT_REIFY,
+				    GFP_KERNEL);
+	if (!skb)
+		return -ENOMEM;
+
+	msg = nfp_flower_cmsg_get_data(skb);
+	msg->portnum = cpu_to_be32(repr->dst->u.port_info.port_id);
+	msg->reserved = 0;
+	msg->info = cpu_to_be16(exists);
 
 	nfp_ctrl_tx(repr->app->ctrl, skb);
 
@@ -106,52 +156,121 @@ nfp_flower_cmsg_portmod_rx(struct nfp_app *app, struct sk_buff *skb)
 	msg = nfp_flower_cmsg_get_data(skb);
 	link = msg->info & NFP_FLOWER_CMSG_PORTMOD_INFO_LINK;
 
+	rtnl_lock();
 	rcu_read_lock();
 	netdev = nfp_app_repr_get(app, be32_to_cpu(msg->portnum));
+	rcu_read_unlock();
 	if (!netdev) {
 		nfp_flower_cmsg_warn(app, "ctrl msg for unknown port 0x%08x\n",
 				     be32_to_cpu(msg->portnum));
-		rcu_read_unlock();
+		rtnl_unlock();
 		return;
 	}
 
 	if (link) {
+		u16 mtu = be16_to_cpu(msg->mtu);
+
 		netif_carrier_on(netdev);
-		rtnl_lock();
-		dev_set_mtu(netdev, be16_to_cpu(msg->mtu));
-		rtnl_unlock();
+
+		/* An MTU of 0 from the firmware should be ignored */
+		if (mtu)
+			dev_set_mtu(netdev, mtu);
 	} else {
 		netif_carrier_off(netdev);
 	}
-	rcu_read_unlock();
+	rtnl_unlock();
 }
 
-void nfp_flower_cmsg_rx(struct nfp_app *app, struct sk_buff *skb)
+static void
+nfp_flower_cmsg_portreify_rx(struct nfp_app *app, struct sk_buff *skb)
+{
+	struct nfp_flower_priv *priv = app->priv;
+	struct nfp_flower_cmsg_portreify *msg;
+	bool exists;
+
+	msg = nfp_flower_cmsg_get_data(skb);
+
+	rcu_read_lock();
+	exists = !!nfp_app_repr_get(app, be32_to_cpu(msg->portnum));
+	rcu_read_unlock();
+	if (!exists) {
+		nfp_flower_cmsg_warn(app, "ctrl msg for unknown port 0x%08x\n",
+				     be32_to_cpu(msg->portnum));
+		return;
+	}
+
+	atomic_inc(&priv->reify_replies);
+	wake_up_interruptible(&priv->reify_wait_queue);
+}
+
+static void
+nfp_flower_cmsg_process_one_rx(struct nfp_app *app, struct sk_buff *skb)
 {
 	struct nfp_flower_cmsg_hdr *cmsg_hdr;
 	enum nfp_flower_cmsg_type_port type;
 
 	cmsg_hdr = nfp_flower_cmsg_get_hdr(skb);
 
-	if (unlikely(cmsg_hdr->version != NFP_FLOWER_CMSG_VER1)) {
-		nfp_flower_cmsg_warn(app, "Cannot handle repr control version %u\n",
-				     cmsg_hdr->version);
-		goto out;
-	}
-
 	type = cmsg_hdr->type;
 	switch (type) {
+	case NFP_FLOWER_CMSG_TYPE_PORT_REIFY:
+		nfp_flower_cmsg_portreify_rx(app, skb);
+		break;
 	case NFP_FLOWER_CMSG_TYPE_PORT_MOD:
 		nfp_flower_cmsg_portmod_rx(app, skb);
 		break;
-	case NFP_FLOWER_CMSG_TYPE_FLOW_STATS:
-		nfp_flower_rx_flow_stats(app, skb);
+	case NFP_FLOWER_CMSG_TYPE_NO_NEIGH:
+		nfp_tunnel_request_route(app, skb);
+		break;
+	case NFP_FLOWER_CMSG_TYPE_ACTIVE_TUNS:
+		nfp_tunnel_keep_alive(app, skb);
+		break;
+	case NFP_FLOWER_CMSG_TYPE_TUN_NEIGH:
+		/* Acks from the NFP that the route is added - ignore. */
 		break;
 	default:
 		nfp_flower_cmsg_warn(app, "Cannot handle invalid repr control type %u\n",
 				     type);
+		goto out;
 	}
 
+	dev_consume_skb_any(skb);
+	return;
 out:
 	dev_kfree_skb_any(skb);
+}
+
+void nfp_flower_cmsg_process_rx(struct work_struct *work)
+{
+	struct nfp_flower_priv *priv;
+	struct sk_buff *skb;
+
+	priv = container_of(work, struct nfp_flower_priv, cmsg_work);
+
+	while ((skb = skb_dequeue(&priv->cmsg_skbs)))
+		nfp_flower_cmsg_process_one_rx(priv->app, skb);
+}
+
+void nfp_flower_cmsg_rx(struct nfp_app *app, struct sk_buff *skb)
+{
+	struct nfp_flower_priv *priv = app->priv;
+	struct nfp_flower_cmsg_hdr *cmsg_hdr;
+
+	cmsg_hdr = nfp_flower_cmsg_get_hdr(skb);
+
+	if (unlikely(cmsg_hdr->version != NFP_FLOWER_CMSG_VER1)) {
+		nfp_flower_cmsg_warn(app, "Cannot handle repr control version %u\n",
+				     cmsg_hdr->version);
+		dev_kfree_skb_any(skb);
+		return;
+	}
+
+	if (cmsg_hdr->type == NFP_FLOWER_CMSG_TYPE_FLOW_STATS) {
+		/* We need to deal with stats updates from HW asap */
+		nfp_flower_rx_flow_stats(app, skb);
+		dev_consume_skb_any(skb);
+	} else {
+		skb_queue_tail(&priv->cmsg_skbs, skb);
+		schedule_work(&priv->cmsg_work);
+	}
 }

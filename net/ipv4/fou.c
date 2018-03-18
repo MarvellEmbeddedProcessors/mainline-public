@@ -450,6 +450,7 @@ out_unlock:
 out:
 	NAPI_GRO_CB(skb)->flush |= flush;
 	skb_gro_remcsum_cleanup(skb, &grc);
+	skb->remcsum_offload = 0;
 
 	return pp;
 }
@@ -1080,6 +1081,7 @@ static struct pernet_operations fou_net_ops = {
 	.exit = fou_exit_net,
 	.id   = &fou_net_id,
 	.size = sizeof(struct fou_net),
+	.async = true,
 };
 
 static int __init fou_init(void)

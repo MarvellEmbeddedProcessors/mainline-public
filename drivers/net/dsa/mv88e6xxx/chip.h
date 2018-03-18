@@ -15,7 +15,10 @@
 #include <linux/if_vlan.h>
 #include <linux/irq.h>
 #include <linux/gpio/consumer.h>
+#include <linux/kthread.h>
 #include <linux/phy.h>
+#include <linux/ptp_clock_kernel.h>
+#include <linux/timecounter.h>
 #include <net/dsa.h>
 
 #ifndef UINT64_MAX
@@ -38,6 +41,8 @@
 /* PVT limits for 4-bit port and 5-bit switch */
 #define MV88E6XXX_MAX_PVT_SWITCHES	32
 #define MV88E6XXX_MAX_PVT_PORTS		16
+
+#define MV88E6XXX_MAX_GPIO	16
 
 enum mv88e6xxx_egress_mode {
 	MV88E6XXX_EGRESS_MODE_UNMODIFIED,
@@ -97,133 +102,6 @@ enum mv88e6xxx_family {
 	MV88E6XXX_FAMILY_6390,  /* 6190 6190X 6191 6290 6390 6390X */
 };
 
-enum mv88e6xxx_cap {
-	/* Energy Efficient Ethernet.
-	 */
-	MV88E6XXX_CAP_EEE,
-
-	/* Multi-chip Addressing Mode.
-	 * Some chips respond to only 2 registers of its own SMI device address
-	 * when it is non-zero, and use indirect access to internal registers.
-	 */
-	MV88E6XXX_CAP_SMI_CMD,		/* (0x00) SMI Command */
-	MV88E6XXX_CAP_SMI_DATA,		/* (0x01) SMI Data */
-
-	/* Switch Global (1) Registers.
-	 */
-	MV88E6XXX_CAP_G1_ATU_FID,	/* (0x01) ATU FID Register */
-	MV88E6XXX_CAP_G1_VTU_FID,	/* (0x02) VTU FID Register */
-
-	/* Switch Global 2 Registers.
-	 * The device contains a second set of global 16-bit registers.
-	 */
-	MV88E6XXX_CAP_GLOBAL2,
-	MV88E6XXX_CAP_G2_INT,		/* (0x00) Interrupt Status */
-	MV88E6XXX_CAP_G2_MGMT_EN_2X,	/* (0x02) MGMT Enable Register 2x */
-	MV88E6XXX_CAP_G2_MGMT_EN_0X,	/* (0x03) MGMT Enable Register 0x */
-	MV88E6XXX_CAP_G2_POT,		/* (0x0f) Priority Override Table */
-
-	/* Per VLAN Spanning Tree Unit (STU).
-	 * The Port State database, if present, is accessed through VTU
-	 * operations and dedicated SID registers. See MV88E6352_G1_VTU_SID.
-	 */
-	MV88E6XXX_CAP_STU,
-
-	/* VLAN Table Unit.
-	 * The VTU is used to program 802.1Q VLANs. See MV88E6XXX_G1_VTU_OP.
-	 */
-	MV88E6XXX_CAP_VTU,
-};
-
-/* Bitmask of capabilities */
-#define MV88E6XXX_FLAG_EEE		BIT_ULL(MV88E6XXX_CAP_EEE)
-
-#define MV88E6XXX_FLAG_SMI_CMD		BIT_ULL(MV88E6XXX_CAP_SMI_CMD)
-#define MV88E6XXX_FLAG_SMI_DATA		BIT_ULL(MV88E6XXX_CAP_SMI_DATA)
-
-#define MV88E6XXX_FLAG_G1_VTU_FID	BIT_ULL(MV88E6XXX_CAP_G1_VTU_FID)
-
-#define MV88E6XXX_FLAG_GLOBAL2		BIT_ULL(MV88E6XXX_CAP_GLOBAL2)
-#define MV88E6XXX_FLAG_G2_INT		BIT_ULL(MV88E6XXX_CAP_G2_INT)
-#define MV88E6XXX_FLAG_G2_MGMT_EN_2X	BIT_ULL(MV88E6XXX_CAP_G2_MGMT_EN_2X)
-#define MV88E6XXX_FLAG_G2_MGMT_EN_0X	BIT_ULL(MV88E6XXX_CAP_G2_MGMT_EN_0X)
-#define MV88E6XXX_FLAG_G2_POT		BIT_ULL(MV88E6XXX_CAP_G2_POT)
-
-/* Multi-chip Addressing Mode */
-#define MV88E6XXX_FLAGS_MULTI_CHIP	\
-	(MV88E6XXX_FLAG_SMI_CMD |	\
-	 MV88E6XXX_FLAG_SMI_DATA)
-
-#define MV88E6XXX_FLAGS_FAMILY_6095	\
-	(MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6097	\
-	(MV88E6XXX_FLAG_G1_VTU_FID |	\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |        \
-	 MV88E6XXX_FLAG_G2_MGMT_EN_2X |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6165	\
-	(MV88E6XXX_FLAG_G1_VTU_FID |	\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_2X |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6185	\
-	(MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6320	\
-	(MV88E6XXX_FLAG_EEE |		\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_2X |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6341	\
-	(MV88E6XXX_FLAG_EEE |		\
-	 MV88E6XXX_FLAG_G1_VTU_FID |	\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6351	\
-	(MV88E6XXX_FLAG_G1_VTU_FID |	\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_2X |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6352	\
-	(MV88E6XXX_FLAG_EEE |		\
-	 MV88E6XXX_FLAG_G1_VTU_FID |	\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_2X |	\
-	 MV88E6XXX_FLAG_G2_MGMT_EN_0X |	\
-	 MV88E6XXX_FLAG_G2_POT |	\
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
-#define MV88E6XXX_FLAGS_FAMILY_6390	\
-	(MV88E6XXX_FLAG_EEE |		\
-	 MV88E6XXX_FLAG_GLOBAL2 |	\
-	 MV88E6XXX_FLAG_G2_INT |        \
-	 MV88E6XXX_FLAGS_MULTI_CHIP)
-
 struct mv88e6xxx_ops;
 
 struct mv88e6xxx_info {
@@ -232,20 +110,31 @@ struct mv88e6xxx_info {
 	const char *name;
 	unsigned int num_databases;
 	unsigned int num_ports;
+	unsigned int num_gpio;
 	unsigned int max_vid;
 	unsigned int port_base_addr;
 	unsigned int global1_addr;
+	unsigned int global2_addr;
 	unsigned int age_time_coeff;
 	unsigned int g1_irqs;
+	unsigned int g2_irqs;
 	bool pvt;
+
+	/* Multi-chip Addressing Mode.
+	 * Some chips respond to only 2 registers of its own SMI device address
+	 * when it is non-zero, and use indirect access to internal registers.
+	 */
+	bool multi_chip;
 	enum dsa_tag_protocol tag_protocol;
-	unsigned long long flags;
 
 	/* Mask for FromPort and ToPort value of PortVec used in ATU Move
 	 * operation. 0 means that the ATU Move operation is not supported.
 	 */
 	u8 atu_move_port_mask;
 	const struct mv88e6xxx_ops *ops;
+
+	/* Supports PTP */
+	bool ptp_support;
 };
 
 struct mv88e6xxx_atu_entry {
@@ -266,12 +155,44 @@ struct mv88e6xxx_vtu_entry {
 
 struct mv88e6xxx_bus_ops;
 struct mv88e6xxx_irq_ops;
+struct mv88e6xxx_gpio_ops;
+struct mv88e6xxx_avb_ops;
 
 struct mv88e6xxx_irq {
 	u16 masked;
 	struct irq_chip chip;
 	struct irq_domain *domain;
 	unsigned int nirqs;
+};
+
+/* state flags for mv88e6xxx_port_hwtstamp::state */
+enum {
+	MV88E6XXX_HWTSTAMP_ENABLED,
+	MV88E6XXX_HWTSTAMP_TX_IN_PROGRESS,
+};
+
+struct mv88e6xxx_port_hwtstamp {
+	/* Port index */
+	int port_id;
+
+	/* Timestamping state */
+	unsigned long state;
+
+	/* Resources for receive timestamping */
+	struct sk_buff_head rx_queue;
+	struct sk_buff_head rx_queue2;
+
+	/* Resources for transmit timestamping */
+	unsigned long tx_tstamp_start;
+	struct sk_buff *tx_skb;
+	u16 tx_seq_id;
+
+	/* Current timestamp configuration */
+	struct hwtstamp_config tstamp_config;
+};
+
+struct mv88e6xxx_port {
+	u64 serdes_stats[2];
 };
 
 struct mv88e6xxx_chip {
@@ -327,6 +248,34 @@ struct mv88e6xxx_chip {
 	int irq;
 	int device_irq;
 	int watchdog_irq;
+
+	int atu_prob_irq;
+	int vtu_prob_irq;
+	struct kthread_worker *kworker;
+	struct kthread_delayed_work irq_poll_work;
+
+	/* GPIO resources */
+	u8 gpio_data[2];
+
+	/* This cyclecounter abstracts the switch PTP time.
+	 * reg_lock must be held for any operation that read()s.
+	 */
+	struct cyclecounter	tstamp_cc;
+	struct timecounter	tstamp_tc;
+	struct delayed_work	overflow_work;
+
+	struct ptp_clock	*ptp_clock;
+	struct ptp_clock_info	ptp_clock_info;
+	struct delayed_work	tai_event_work;
+	struct ptp_pin_desc	pin_config[MV88E6XXX_MAX_GPIO];
+	u16 trig_config;
+	u16 evcap_config;
+
+	/* Per-port timestamping resources. */
+	struct mv88e6xxx_port_hwtstamp port_hwtstamp[DSA_MAX_PORTS];
+
+	/* Array of port structures. */
+	struct mv88e6xxx_port ports[DSA_MAX_PORTS];
 };
 
 struct mv88e6xxx_bus_ops {
@@ -358,6 +307,9 @@ struct mv88e6xxx_ops {
 	int (*phy_write)(struct mv88e6xxx_chip *chip,
 			 struct mii_bus *bus,
 			 int addr, int reg, u16 val);
+
+	/* Priority Override Table operations */
+	int (*pot_clear)(struct mv88e6xxx_chip *chip);
 
 	/* PHY Polling Unit (PPU) operations */
 	int (*ppu_enable)(struct mv88e6xxx_chip *chip);
@@ -442,24 +394,36 @@ struct mv88e6xxx_ops {
 
 	/* Return the number of strings describing statistics */
 	int (*stats_get_sset_count)(struct mv88e6xxx_chip *chip);
-	void (*stats_get_strings)(struct mv88e6xxx_chip *chip,  uint8_t *data);
-	void (*stats_get_stats)(struct mv88e6xxx_chip *chip,  int port,
-				uint64_t *data);
+	int (*stats_get_strings)(struct mv88e6xxx_chip *chip,  uint8_t *data);
+	int (*stats_get_stats)(struct mv88e6xxx_chip *chip,  int port,
+			       uint64_t *data);
 	int (*set_cpu_port)(struct mv88e6xxx_chip *chip, int port);
 	int (*set_egress_port)(struct mv88e6xxx_chip *chip, int port);
 	const struct mv88e6xxx_irq_ops *watchdog_ops;
 
-	/* Can be either in g1 or g2, so don't use a prefix */
 	int (*mgmt_rsvd2cpu)(struct mv88e6xxx_chip *chip);
 
 	/* Power on/off a SERDES interface */
 	int (*serdes_power)(struct mv88e6xxx_chip *chip, int port, bool on);
+
+	/* Statistics from the SERDES interface */
+	int (*serdes_get_sset_count)(struct mv88e6xxx_chip *chip, int port);
+	void (*serdes_get_strings)(struct mv88e6xxx_chip *chip,  int port,
+				   uint8_t *data);
+	void (*serdes_get_stats)(struct mv88e6xxx_chip *chip,  int port,
+				 uint64_t *data);
 
 	/* VLAN Translation Unit operations */
 	int (*vtu_getnext)(struct mv88e6xxx_chip *chip,
 			   struct mv88e6xxx_vtu_entry *entry);
 	int (*vtu_loadpurge)(struct mv88e6xxx_chip *chip,
 			     struct mv88e6xxx_vtu_entry *entry);
+
+	/* GPIO operations */
+	const struct mv88e6xxx_gpio_ops *gpio_ops;
+
+	/* Interface to the AVB/PTP registers */
+	const struct mv88e6xxx_avb_ops *avb_ops;
 };
 
 struct mv88e6xxx_irq_ops {
@@ -471,22 +435,52 @@ struct mv88e6xxx_irq_ops {
 	void (*irq_free)(struct mv88e6xxx_chip *chip);
 };
 
+struct mv88e6xxx_gpio_ops {
+	/* Get/set data on GPIO pin */
+	int (*get_data)(struct mv88e6xxx_chip *chip, unsigned int pin);
+	int (*set_data)(struct mv88e6xxx_chip *chip, unsigned int pin,
+			int value);
+
+	/* get/set GPIO direction */
+	int (*get_dir)(struct mv88e6xxx_chip *chip, unsigned int pin);
+	int (*set_dir)(struct mv88e6xxx_chip *chip, unsigned int pin,
+		       bool input);
+
+	/* get/set GPIO pin control */
+	int (*get_pctl)(struct mv88e6xxx_chip *chip, unsigned int pin,
+			int *func);
+	int (*set_pctl)(struct mv88e6xxx_chip *chip, unsigned int pin,
+			int func);
+};
+
+struct mv88e6xxx_avb_ops {
+	/* Access port-scoped Precision Time Protocol registers */
+	int (*port_ptp_read)(struct mv88e6xxx_chip *chip, int port, int addr,
+			     u16 *data, int len);
+	int (*port_ptp_write)(struct mv88e6xxx_chip *chip, int port, int addr,
+			      u16 data);
+
+	/* Access global Precision Time Protocol registers */
+	int (*ptp_read)(struct mv88e6xxx_chip *chip, int addr, u16 *data,
+			int len);
+	int (*ptp_write)(struct mv88e6xxx_chip *chip, int addr, u16 data);
+
+	/* Access global Time Application Interface registers */
+	int (*tai_read)(struct mv88e6xxx_chip *chip, int addr, u16 *data,
+			int len);
+	int (*tai_write)(struct mv88e6xxx_chip *chip, int addr, u16 data);
+};
+
 #define STATS_TYPE_PORT		BIT(0)
 #define STATS_TYPE_BANK0	BIT(1)
 #define STATS_TYPE_BANK1	BIT(2)
 
 struct mv88e6xxx_hw_stat {
 	char string[ETH_GSTRING_LEN];
-	int sizeof_stat;
+	size_t size;
 	int reg;
 	int type;
 };
-
-static inline bool mv88e6xxx_has(struct mv88e6xxx_chip *chip,
-				 unsigned long flags)
-{
-	return (chip->info->flags & flags) == flags;
-}
 
 static inline bool mv88e6xxx_has_pvt(struct mv88e6xxx_chip *chip)
 {
@@ -506,6 +500,11 @@ static inline unsigned int mv88e6xxx_num_ports(struct mv88e6xxx_chip *chip)
 static inline u16 mv88e6xxx_port_mask(struct mv88e6xxx_chip *chip)
 {
 	return GENMASK(mv88e6xxx_num_ports(chip) - 1, 0);
+}
+
+static inline unsigned int mv88e6xxx_num_gpio(struct mv88e6xxx_chip *chip)
+{
+	return chip->info->num_gpio;
 }
 
 int mv88e6xxx_read(struct mv88e6xxx_chip *chip, int addr, int reg, u16 *val);

@@ -1,3 +1,4 @@
+// SPDX-License-Identifier: GPL-2.0
 #include <linux/in.h>
 #include <linux/inet.h>
 #include <linux/list.h>
@@ -155,8 +156,8 @@ static void kcm_format_psock(struct kcm_psock *psock, struct seq_file *seq,
 	seq_printf(seq,
 		   "   psock-%-5u %-10llu %-16llu %-10llu %-16llu %-8d %-8d %-8d %-8d ",
 		   psock->index,
-		   psock->strp.stats.rx_msgs,
-		   psock->strp.stats.rx_bytes,
+		   psock->strp.stats.msgs,
+		   psock->strp.stats.bytes,
 		   psock->stats.tx_msgs,
 		   psock->stats.tx_bytes,
 		   psock->sk->sk_receive_queue.qlen,
@@ -170,22 +171,22 @@ static void kcm_format_psock(struct kcm_psock *psock, struct seq_file *seq,
 	if (psock->tx_stopped)
 		seq_puts(seq, "TxStop ");
 
-	if (psock->strp.rx_stopped)
+	if (psock->strp.stopped)
 		seq_puts(seq, "RxStop ");
 
 	if (psock->tx_kcm)
 		seq_printf(seq, "Rsvd-%d ", psock->tx_kcm->index);
 
-	if (!psock->strp.rx_paused && !psock->ready_rx_msg) {
+	if (!psock->strp.paused && !psock->ready_rx_msg) {
 		if (psock->sk->sk_receive_queue.qlen) {
-			if (psock->strp.rx_need_bytes)
+			if (psock->strp.need_bytes)
 				seq_printf(seq, "RxWait=%u ",
-					   psock->strp.rx_need_bytes);
+					   psock->strp.need_bytes);
 			else
 				seq_printf(seq, "RxWait ");
 		}
 	} else  {
-		if (psock->strp.rx_paused)
+		if (psock->strp.paused)
 			seq_puts(seq, "RxPause ");
 
 		if (psock->ready_rx_msg)
@@ -246,7 +247,6 @@ static int kcm_seq_show(struct seq_file *seq, void *v)
 }
 
 static const struct file_operations kcm_seq_fops = {
-	.owner		= THIS_MODULE,
 	.open		= kcm_seq_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
@@ -371,20 +371,20 @@ static int kcm_stats_seq_show(struct seq_file *seq, void *v)
 	seq_printf(seq,
 		   "%-8s %-10llu %-16llu %-10llu %-16llu %-10llu %-10llu %-10u %-10u %-10u %-10u %-10u %-10u %-10u %-10u %-10u\n",
 		   "",
-		   strp_stats.rx_msgs,
-		   strp_stats.rx_bytes,
+		   strp_stats.msgs,
+		   strp_stats.bytes,
 		   psock_stats.tx_msgs,
 		   psock_stats.tx_bytes,
 		   psock_stats.reserved,
 		   psock_stats.unreserved,
-		   strp_stats.rx_aborts,
-		   strp_stats.rx_interrupted,
-		   strp_stats.rx_unrecov_intr,
-		   strp_stats.rx_mem_fail,
-		   strp_stats.rx_need_more_hdr,
-		   strp_stats.rx_bad_hdr_len,
-		   strp_stats.rx_msg_too_big,
-		   strp_stats.rx_msg_timeouts,
+		   strp_stats.aborts,
+		   strp_stats.interrupted,
+		   strp_stats.unrecov_intr,
+		   strp_stats.mem_fail,
+		   strp_stats.need_more_hdr,
+		   strp_stats.bad_hdr_len,
+		   strp_stats.msg_too_big,
+		   strp_stats.msg_timeouts,
 		   psock_stats.tx_aborts);
 
 	return 0;
@@ -396,7 +396,6 @@ static int kcm_stats_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations kcm_stats_seq_fops = {
-	.owner   = THIS_MODULE,
 	.open    = kcm_stats_seq_open,
 	.read    = seq_read,
 	.llseek  = seq_lseek,
@@ -434,6 +433,7 @@ static void kcm_proc_exit_net(struct net *net)
 static struct pernet_operations kcm_net_ops = {
 	.init = kcm_proc_init_net,
 	.exit = kcm_proc_exit_net,
+	.async = true,
 };
 
 int __init kcm_proc_init(void)

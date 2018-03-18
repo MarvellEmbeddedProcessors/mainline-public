@@ -515,6 +515,7 @@ static void __net_exit nfnl_acct_net_exit(struct net *net)
 static struct pernet_operations nfnl_acct_ops = {
         .init   = nfnl_acct_net_init,
         .exit   = nfnl_acct_net_exit,
+	.async	= true,
 };
 
 static int __init nfnl_acct_init(void)
@@ -527,7 +528,6 @@ static int __init nfnl_acct_init(void)
 		goto err_out;
 	}
 
-	pr_info("nfnl_acct: registering with nfnetlink.\n");
 	ret = nfnetlink_subsys_register(&nfnl_acct_subsys);
 	if (ret < 0) {
 		pr_err("nfnl_acct_init: cannot register with nfnetlink.\n");
@@ -543,7 +543,6 @@ err_out:
 
 static void __exit nfnl_acct_exit(void)
 {
-	pr_info("nfnl_acct: unregistering from nfnetlink.\n");
 	nfnetlink_subsys_unregister(&nfnl_acct_subsys);
 	unregister_pernet_subsys(&nfnl_acct_ops);
 }

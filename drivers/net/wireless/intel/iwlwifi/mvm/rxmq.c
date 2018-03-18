@@ -63,7 +63,6 @@
 #include "iwl-trans.h"
 #include "mvm.h"
 #include "fw-api.h"
-#include "fw-dbg.h"
 
 static inline int iwl_mvm_check_pn(struct iwl_mvm *mvm, struct sk_buff *skb,
 				   int queue, struct ieee80211_sta *sta)
@@ -214,6 +213,7 @@ static void iwl_mvm_get_signal_strength(struct iwl_mvm *mvm,
 					struct ieee80211_rx_status *rx_status)
 {
 	int energy_a, energy_b, max_energy;
+	u32 rate_flags = le32_to_cpu(desc->rate_n_flags);
 
 	energy_a = desc->energy_a;
 	energy_a = energy_a ? -energy_a : S8_MIN;
@@ -225,7 +225,8 @@ static void iwl_mvm_get_signal_strength(struct iwl_mvm *mvm,
 			energy_a, energy_b, max_energy);
 
 	rx_status->signal = max_energy;
-	rx_status->chains = 0; /* TODO: phy info */
+	rx_status->chains =
+		(rate_flags & RATE_MCS_ANT_AB_MSK) >> RATE_MCS_ANT_POS;
 	rx_status->chain_signal[0] = energy_a;
 	rx_status->chain_signal[1] = energy_b;
 	rx_status->chain_signal[2] = S8_MIN;
@@ -233,8 +234,8 @@ static void iwl_mvm_get_signal_strength(struct iwl_mvm *mvm,
 
 static int iwl_mvm_rx_crypto(struct iwl_mvm *mvm, struct ieee80211_hdr *hdr,
 			     struct ieee80211_rx_status *stats,
-			     struct iwl_rx_mpdu_desc *desc, int queue,
-			     u8 *crypt_len)
+			     struct iwl_rx_mpdu_desc *desc, u32 pkt_flags,
+			     int queue, u8 *crypt_len)
 {
 	u16 status = le16_to_cpu(desc->status);
 
@@ -254,11 +255,15 @@ static int iwl_mvm_rx_crypto(struct iwl_mvm *mvm, struct ieee80211_hdr *hdr,
 			return -1;
 
 		stats->flag |= RX_FLAG_DECRYPTED;
+		if (pkt_flags & FH_RSCSR_RADA_EN)
+			stats->flag |= RX_FLAG_MIC_STRIPPED;
 		*crypt_len = IEEE80211_CCMP_HDR_LEN;
 		return 0;
 	case IWL_RX_MPDU_STATUS_SEC_TKIP:
 		/* Don't drop the frame and decrypt it in SW */
-		if (!(status & IWL_RX_MPDU_RES_STATUS_TTAK_OK))
+		if (!fw_has_api(&mvm->fw->ucode_capa,
+				IWL_UCODE_TLV_API_DEPRECATE_TTAK) &&
+		    !(status & IWL_RX_MPDU_RES_STATUS_TTAK_OK))
 			return 0;
 
 		*crypt_len = IEEE80211_TKIP_IV_LEN;
@@ -271,6 +276,10 @@ static int iwl_mvm_rx_crypto(struct iwl_mvm *mvm, struct ieee80211_hdr *hdr,
 		if ((status & IWL_RX_MPDU_STATUS_SEC_MASK) ==
 				IWL_RX_MPDU_STATUS_SEC_WEP)
 			*crypt_len = IEEE80211_WEP_IV_LEN;
+
+		if (pkt_flags & FH_RSCSR_RADA_EN)
+			stats->flag |= RX_FLAG_ICV_STRIPPED;
+
 		return 0;
 	case IWL_RX_MPDU_STATUS_SEC_EXT_ENC:
 		if (!(status & IWL_RX_MPDU_STATUS_MIC_OK))
@@ -278,7 +287,9 @@ static int iwl_mvm_rx_crypto(struct iwl_mvm *mvm, struct ieee80211_hdr *hdr,
 		stats->flag |= RX_FLAG_DECRYPTED;
 		return 0;
 	default:
-		IWL_ERR(mvm, "Unhandled alg: 0x%x\n", status);
+		/* Expected in monitor (not having the keys) */
+		if (!mvm->monitor_on)
+			IWL_ERR(mvm, "Unhandled alg: 0x%x\n", status);
 	}
 
 	return 0;
@@ -408,9 +419,13 @@ static bool iwl_mvm_is_sn_less(u16 sn1, u16 sn2, u16 buffer_size)
 static void iwl_mvm_release_frames(struct iwl_mvm *mvm,
 				   struct ieee80211_sta *sta,
 				   struct napi_struct *napi,
+				   struct iwl_mvm_baid_data *baid_data,
 				   struct iwl_mvm_reorder_buffer *reorder_buf,
 				   u16 nssn)
 {
+	struct iwl_mvm_reorder_buf_entry *entries =
+		&baid_data->entries[reorder_buf->queue *
+				    baid_data->entries_per_queue];
 	u16 ssn = reorder_buf->head_sn;
 
 	lockdep_assert_held(&reorder_buf->lock);
@@ -421,7 +436,7 @@ static void iwl_mvm_release_frames(struct iwl_mvm *mvm,
 
 	while (iwl_mvm_is_sn_less(ssn, nssn, reorder_buf->buf_size)) {
 		int index = ssn % reorder_buf->buf_size;
-		struct sk_buff_head *skb_list = &reorder_buf->entries[index];
+		struct sk_buff_head *skb_list = &entries[index].e.frames;
 		struct sk_buff *skb;
 
 		ssn = ieee80211_sn_inc(ssn);
@@ -444,20 +459,24 @@ set_timer:
 	if (reorder_buf->num_stored && !reorder_buf->removed) {
 		u16 index = reorder_buf->head_sn % reorder_buf->buf_size;
 
-		while (skb_queue_empty(&reorder_buf->entries[index]))
+		while (skb_queue_empty(&entries[index].e.frames))
 			index = (index + 1) % reorder_buf->buf_size;
 		/* modify timer to match next frame's expiration time */
 		mod_timer(&reorder_buf->reorder_timer,
-			  reorder_buf->reorder_time[index] + 1 +
+			  entries[index].e.reorder_time + 1 +
 			  RX_REORDER_BUF_TIMEOUT_MQ);
 	} else {
 		del_timer(&reorder_buf->reorder_timer);
 	}
 }
 
-void iwl_mvm_reorder_timer_expired(unsigned long data)
+void iwl_mvm_reorder_timer_expired(struct timer_list *t)
 {
-	struct iwl_mvm_reorder_buffer *buf = (void *)data;
+	struct iwl_mvm_reorder_buffer *buf = from_timer(buf, t, reorder_timer);
+	struct iwl_mvm_baid_data *baid_data =
+		iwl_mvm_baid_data_from_reorder_buf(buf);
+	struct iwl_mvm_reorder_buf_entry *entries =
+		&baid_data->entries[buf->queue * baid_data->entries_per_queue];
 	int i;
 	u16 sn = 0, index = 0;
 	bool expired = false;
@@ -473,7 +492,7 @@ void iwl_mvm_reorder_timer_expired(unsigned long data)
 	for (i = 0; i < buf->buf_size ; i++) {
 		index = (buf->head_sn + i) % buf->buf_size;
 
-		if (skb_queue_empty(&buf->entries[index])) {
+		if (skb_queue_empty(&entries[index].e.frames)) {
 			/*
 			 * If there is a hole and the next frame didn't expire
 			 * we want to break and not advance SN
@@ -481,7 +500,8 @@ void iwl_mvm_reorder_timer_expired(unsigned long data)
 			cont = false;
 			continue;
 		}
-		if (!cont && !time_after(jiffies, buf->reorder_time[index] +
+		if (!cont &&
+		    !time_after(jiffies, entries[index].e.reorder_time +
 					 RX_REORDER_BUF_TIMEOUT_MQ))
 			break;
 
@@ -493,14 +513,20 @@ void iwl_mvm_reorder_timer_expired(unsigned long data)
 
 	if (expired) {
 		struct ieee80211_sta *sta;
+		struct iwl_mvm_sta *mvmsta;
+		u8 sta_id = baid_data->sta_id;
 
 		rcu_read_lock();
-		sta = rcu_dereference(buf->mvm->fw_id_to_mac_id[buf->sta_id]);
+		sta = rcu_dereference(buf->mvm->fw_id_to_mac_id[sta_id]);
+		mvmsta = iwl_mvm_sta_from_mac80211(sta);
+
 		/* SN is set to the last expired frame + 1 */
 		IWL_DEBUG_HT(buf->mvm,
 			     "Releasing expired frames for sta %u, sn %d\n",
-			     buf->sta_id, sn);
-		iwl_mvm_release_frames(buf->mvm, sta, NULL, buf, sn);
+			     sta_id, sn);
+		iwl_mvm_event_frame_timeout_callback(buf->mvm, mvmsta->vif,
+						     sta, baid_data->tid);
+		iwl_mvm_release_frames(buf->mvm, sta, NULL, baid_data, buf, sn);
 		rcu_read_unlock();
 	} else {
 		/*
@@ -509,7 +535,7 @@ void iwl_mvm_reorder_timer_expired(unsigned long data)
 		 * accordingly to this frame.
 		 */
 		mod_timer(&buf->reorder_timer,
-			  buf->reorder_time[index] +
+			  entries[index].e.reorder_time +
 			  1 + RX_REORDER_BUF_TIMEOUT_MQ);
 	}
 	spin_unlock(&buf->lock);
@@ -540,7 +566,7 @@ static void iwl_mvm_del_ba(struct iwl_mvm *mvm, int queue,
 
 	/* release all frames that are in the reorder buffer to the stack */
 	spin_lock_bh(&reorder_buf->lock);
-	iwl_mvm_release_frames(mvm, sta, NULL, reorder_buf,
+	iwl_mvm_release_frames(mvm, sta, NULL, ba_data, reorder_buf,
 			       ieee80211_sn_add(reorder_buf->head_sn,
 						reorder_buf->buf_size));
 	spin_unlock_bh(&reorder_buf->lock);
@@ -604,6 +630,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	u8 tid = *ieee80211_get_qos_ctl(hdr) & IEEE80211_QOS_CTL_TID_MASK;
 	u8 sub_frame_idx = desc->amsdu_info &
 			   IWL_RX_MPDU_AMSDU_SUBFRAME_IDX_MASK;
+	struct iwl_mvm_reorder_buf_entry *entries;
 	int index;
 	u16 nssn, sn;
 	u8 baid;
@@ -620,7 +647,8 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		return false;
 
 	/* no sta yet */
-	if (WARN_ON(IS_ERR_OR_NULL(sta)))
+	if (WARN_ONCE(IS_ERR_OR_NULL(sta),
+		      "Got valid BAID without a valid station assigned\n"))
 		return false;
 
 	mvm_sta = iwl_mvm_sta_from_mac80211(sta);
@@ -636,9 +664,9 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 
 	baid_data = rcu_dereference(mvm->baid_map[baid]);
 	if (!baid_data) {
-		WARN(!(reorder & IWL_RX_MPDU_REORDER_BA_OLD_SN),
-		     "Received baid %d, but no data exists for this BAID\n",
-		     baid);
+		IWL_DEBUG_RX(mvm,
+			     "Got valid BAID but no baid allocated, bypass the re-ordering buffer. Baid %d reorder 0x%x\n",
+			      baid, reorder);
 		return false;
 	}
 
@@ -653,6 +681,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		IWL_RX_MPDU_REORDER_SN_SHIFT;
 
 	buffer = &baid_data->reorder_buf[queue];
+	entries = &baid_data->entries[queue * baid_data->entries_per_queue];
 
 	spin_lock_bh(&buffer->lock);
 
@@ -665,7 +694,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	}
 
 	if (ieee80211_is_back_req(hdr->frame_control)) {
-		iwl_mvm_release_frames(mvm, sta, napi, buffer, nssn);
+		iwl_mvm_release_frames(mvm, sta, napi, baid_data, buffer, nssn);
 		goto drop;
 	}
 
@@ -673,14 +702,16 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	 * If there was a significant jump in the nssn - adjust.
 	 * If the SN is smaller than the NSSN it might need to first go into
 	 * the reorder buffer, in which case we just release up to it and the
-	 * rest of the function will take of storing it and releasing up to the
-	 * nssn
+	 * rest of the function will take care of storing it and releasing up to
+	 * the nssn
 	 */
 	if (!iwl_mvm_is_sn_less(nssn, buffer->head_sn + buffer->buf_size,
-				buffer->buf_size)) {
+				buffer->buf_size) ||
+	    !ieee80211_sn_less(sn, buffer->head_sn + buffer->buf_size)) {
 		u16 min_sn = ieee80211_sn_less(sn, nssn) ? sn : nssn;
 
-		iwl_mvm_release_frames(mvm, sta, napi, buffer, min_sn);
+		iwl_mvm_release_frames(mvm, sta, napi, baid_data, buffer,
+				       min_sn);
 	}
 
 	/* drop any oudated packets */
@@ -698,6 +729,22 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		return false;
 	}
 
+	/*
+	 * release immediately if there are no stored frames, and the sn is
+	 * equal to the head.
+	 * This can happen due to reorder timer, where NSSN is behind head_sn.
+	 * When we released everything, and we got the next frame in the
+	 * sequence, according to the NSSN we can't release immediately,
+	 * while technically there is no hole and we can move forward.
+	 */
+	if (!buffer->num_stored && sn == buffer->head_sn) {
+		if (!amsdu || last_subframe)
+			buffer->head_sn = ieee80211_sn_inc(buffer->head_sn);
+		/* No need to update AMSDU last SN - we are moving the head */
+		spin_unlock_bh(&buffer->lock);
+		return false;
+	}
+
 	index = sn % buffer->buf_size;
 
 	/*
@@ -708,7 +755,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	 * If it is the same SN then if the subframe index is incrementing it
 	 * is the same AMSDU - otherwise it is a retransmission.
 	 */
-	tail = skb_peek_tail(&buffer->entries[index]);
+	tail = skb_peek_tail(&entries[index].e.frames);
 	if (tail && !amsdu)
 		goto drop;
 	else if (tail && (sn != buffer->last_amsdu ||
@@ -716,9 +763,9 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 		goto drop;
 
 	/* put in reorder buffer */
-	__skb_queue_tail(&buffer->entries[index], skb);
+	__skb_queue_tail(&entries[index].e.frames, skb);
 	buffer->num_stored++;
-	buffer->reorder_time[index] = jiffies;
+	entries[index].e.reorder_time = jiffies;
 
 	if (amsdu) {
 		buffer->last_amsdu = sn;
@@ -737,7 +784,7 @@ static bool iwl_mvm_reorder(struct iwl_mvm *mvm,
 	 * release notification with up to date NSSN.
 	 */
 	if (!amsdu || last_subframe)
-		iwl_mvm_release_frames(mvm, sta, napi, buffer, nssn);
+		iwl_mvm_release_frames(mvm, sta, napi, baid_data, buffer, nssn);
 
 	spin_unlock_bh(&buffer->lock);
 	return true;
@@ -759,7 +806,9 @@ static void iwl_mvm_agg_rx_received(struct iwl_mvm *mvm,
 
 	data = rcu_dereference(mvm->baid_map[baid]);
 	if (!data) {
-		WARN_ON(!(reorder_data & IWL_RX_MPDU_REORDER_BA_OLD_SN));
+		IWL_DEBUG_RX(mvm,
+			     "Got valid BAID but no baid allocated, bypass the re-ordering buffer. Baid %d reorder 0x%x\n",
+			      baid, reorder_data);
 		goto out;
 	}
 
@@ -795,6 +844,9 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 	struct sk_buff *skb;
 	u8 crypt_len = 0;
 
+	if (unlikely(test_bit(IWL_MVM_STATUS_IN_HW_RESTART, &mvm->status)))
+		return;
+
 	/* Dont use dev_alloc_skb(), we'll have enough headroom once
 	 * ieee80211_hdr pulled.
 	 */
@@ -806,7 +858,9 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 
 	rx_status = IEEE80211_SKB_RXCB(skb);
 
-	if (iwl_mvm_rx_crypto(mvm, hdr, rx_status, desc, queue, &crypt_len)) {
+	if (iwl_mvm_rx_crypto(mvm, hdr, rx_status, desc,
+			      le32_to_cpu(pkt->len_n_flags), queue,
+			      &crypt_len)) {
 		kfree_skb(skb);
 		return;
 	}
@@ -852,7 +906,7 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 
 	rcu_read_lock();
 
-	if (le16_to_cpu(desc->status) & IWL_RX_MPDU_STATUS_SRC_STA_FOUND) {
+	if (desc->status & cpu_to_le16(IWL_RX_MPDU_STATUS_SRC_STA_FOUND)) {
 		u8 id = desc->sta_id_flags & IWL_RX_MPDU_SIF_STA_ID_MASK;
 
 		if (!WARN_ON_ONCE(id >= ARRAY_SIZE(mvm->fw_id_to_mac_id))) {
@@ -891,7 +945,7 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 								 false);
 		}
 
-		rs_update_last_rssi(mvm, &mvmsta->lq_sta, rx_status);
+		rs_update_last_rssi(mvm, mvmsta, rx_status);
 
 		if (iwl_fw_dbg_trigger_enabled(mvm->fw, FW_DBG_TRIGGER_RSSI) &&
 		    ieee80211_is_beacon(hdr->frame_control)) {
@@ -906,10 +960,12 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 			rssi = le32_to_cpu(rssi_trig->rssi);
 
 			trig_check =
-				iwl_fw_dbg_trigger_check_stop(mvm, mvmsta->vif,
+				iwl_fw_dbg_trigger_check_stop(&mvm->fwrt,
+							      ieee80211_vif_to_wdev(mvmsta->vif),
 							      trig);
 			if (trig_check && rx_status->signal < rssi)
-				iwl_mvm_fw_dbg_collect_trig(mvm, trig, NULL);
+				iwl_fw_dbg_collect_trig(&mvm->fwrt, trig,
+							NULL);
 		}
 
 		if (ieee80211_is_data(hdr->frame_control))
@@ -966,7 +1022,9 @@ void iwl_mvm_rx_mpdu_mq(struct iwl_mvm *mvm, struct napi_struct *napi,
 		rx_status->bw = RATE_INFO_BW_160;
 		break;
 	}
-	if (rate_n_flags & RATE_MCS_SGI_MSK)
+
+	if (!(rate_n_flags & RATE_MCS_CCK_MSK) &&
+	    rate_n_flags & RATE_MCS_SGI_MSK)
 		rx_status->enc_flags |= RX_ENC_FLAG_SHORT_GI;
 	if (rate_n_flags & RATE_HT_MCS_GF_MSK)
 		rx_status->enc_flags |= RX_ENC_FLAG_HT_GF;
@@ -1053,7 +1111,7 @@ void iwl_mvm_rx_frame_release(struct iwl_mvm *mvm, struct napi_struct *napi,
 	reorder_buf = &ba_data->reorder_buf[queue];
 
 	spin_lock_bh(&reorder_buf->lock);
-	iwl_mvm_release_frames(mvm, sta, napi, reorder_buf,
+	iwl_mvm_release_frames(mvm, sta, napi, ba_data, reorder_buf,
 			       le16_to_cpu(release->nssn));
 	spin_unlock_bh(&reorder_buf->lock);
 

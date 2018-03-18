@@ -1,24 +1,25 @@
-
 /*
-***************************************************************************************************
-*
-*  Trade secret of Advanced Micro Devices, Inc.
-*  Copyright (c) 2010 Advanced Micro Devices, Inc. (unpublished)
-*
-*  All rights reserved.  This notice is intended as a precaution against inadvertent publication and
-*  does not imply publication or any waiver of confidentiality.  The year included in the foregoing
-*  notice is the year of creation of the work.
-*
-***************************************************************************************************
-*/
-/**
-***************************************************************************************************
-* @brief gfx9 Clearstate Definitions
-***************************************************************************************************
-*
-*   Do not edit! This is a machine-generated file!
-*
-*/
+ * Copyright 2017 Advanced Micro Devices, Inc.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a
+ * copy of this software and associated documentation files (the "Software"),
+ * to deal in the Software without restriction, including without limitation
+ * the rights to use, copy, modify, merge, publish, distribute, sublicense,
+ * and/or sell copies of the Software, and to permit persons to whom the
+ * Software is furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.  IN NO EVENT SHALL
+ * THE COPYRIGHT HOLDER(S) OR AUTHOR(S) BE LIABLE FOR ANY CLAIM, DAMAGES OR
+ * OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ * ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
+ * OTHER DEALINGS IN THE SOFTWARE.
+ *
+ */
 
 static const unsigned int gfx9_SECT_CONTEXT_def_1[] =
 {
@@ -47,7 +48,7 @@ static const unsigned int gfx9_SECT_CONTEXT_def_1[] =
     0x00000000, // DB_STENCIL_WRITE_BASE
     0x00000000, // DB_STENCIL_WRITE_BASE_HI
     0x00000000, // DB_DFSM_CONTROL
-    0x00000000, // DB_RENDER_FILTER
+    0, // HOLE
     0x00000000, // DB_Z_INFO2
     0x00000000, // DB_STENCIL_INFO2
     0, // HOLE
@@ -258,8 +259,8 @@ static const unsigned int gfx9_SECT_CONTEXT_def_2[] =
     0x00000000, // PA_SC_RIGHT_VERT_GRID
     0x00000000, // PA_SC_LEFT_VERT_GRID
     0x00000000, // PA_SC_HORIZ_GRID
-    0x00000000, // PA_SC_FOV_WINDOW_LR
-    0x00000000, // PA_SC_FOV_WINDOW_TB
+    0, // HOLE
+    0, // HOLE
     0, // HOLE
     0, // HOLE
     0, // HOLE
@@ -700,7 +701,7 @@ static const unsigned int gfx9_SECT_CONTEXT_def_7[] =
 {
     0x00000000, // VGT_GS_MAX_PRIMS_PER_SUBGROUP
     0x00000000, // VGT_DRAW_PAYLOAD_CNTL
-    0x00000000, // VGT_INDEX_PAYLOAD_CNTL
+    0, // HOLE
     0x00000000, // VGT_INSTANCE_STEP_RATE_0
     0x00000000, // VGT_INSTANCE_STEP_RATE_1
     0, // HOLE

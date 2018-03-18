@@ -317,7 +317,6 @@ static int synproxy_cpu_seq_open(struct inode *inode, struct file *file)
 }
 
 static const struct file_operations synproxy_cpu_seq_fops = {
-	.owner		= THIS_MODULE,
 	.open		= synproxy_cpu_seq_open,
 	.read		= seq_read,
 	.llseek		= seq_lseek,
@@ -399,6 +398,7 @@ static struct pernet_operations synproxy_net_ops = {
 	.exit		= synproxy_net_exit,
 	.id		= &synproxy_net_id,
 	.size		= sizeof(struct synproxy_net),
+	.async		= true,
 };
 
 static int __init synproxy_core_init(void)

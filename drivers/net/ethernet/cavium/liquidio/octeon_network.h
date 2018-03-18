@@ -33,6 +33,19 @@
 #define   LIO_IFSTATE_REGISTERED           0x02
 #define   LIO_IFSTATE_RUNNING              0x04
 #define   LIO_IFSTATE_RX_TIMESTAMP_ENABLED 0x08
+#define   LIO_IFSTATE_RESETTING		   0x10
+
+struct liquidio_if_cfg_context {
+	u32 octeon_id;
+	wait_queue_head_t wc;
+	int cond;
+};
+
+struct liquidio_if_cfg_resp {
+	u64 rh;
+	struct liquidio_if_cfg_info cfg_info;
+	u64 status;
+};
 
 struct oct_nic_stats_resp {
 	u64     rh;
@@ -135,6 +148,9 @@ struct lio {
 	/* work queue for  link status */
 	struct cavium_wq	link_status_wq;
 
+	/* work queue to regularly send local time to octeon firmware */
+	struct cavium_wq	sync_octeon_time_wq;
+
 	int netdev_uc_count;
 };
 
@@ -166,11 +182,27 @@ void cleanup_rx_oom_poll_fn(struct net_device *netdev);
  */
 void liquidio_link_ctrl_cmd_completion(void *nctrl_ptr);
 
+int liquidio_setup_io_queues(struct octeon_device *octeon_dev, int ifidx,
+			     u32 num_iqs, u32 num_oqs);
+
+irqreturn_t liquidio_msix_intr_handler(int irq __attribute__((unused)),
+				       void *dev);
+
+int octeon_setup_interrupt(struct octeon_device *oct, u32 num_ioqs);
+
 /**
  * \brief Register ethtool operations
  * @param netdev    pointer to network device
  */
 void liquidio_set_ethtool_ops(struct net_device *netdev);
+
+/**
+ * \brief Net device change_mtu
+ * @param netdev network device
+ */
+int liquidio_change_mtu(struct net_device *netdev, int new_mtu);
+#define LIO_CHANGE_MTU_SUCCESS 1
+#define LIO_CHANGE_MTU_FAIL    2
 
 #define SKB_ADJ_MASK  0x3F
 #define SKB_ADJ       (SKB_ADJ_MASK + 1)
@@ -186,7 +218,7 @@ static inline void
 	struct sk_buff *skb;
 	struct octeon_skb_page_info *skb_pg_info;
 
-	page = alloc_page(GFP_ATOMIC | __GFP_COLD);
+	page = alloc_page(GFP_ATOMIC);
 	if (unlikely(!page))
 		return NULL;
 
@@ -446,6 +478,32 @@ static inline void ifstate_set(struct lio *lio, int state_flag)
 static inline void ifstate_reset(struct lio *lio, int state_flag)
 {
 	atomic_set(&lio->ifstate, (atomic_read(&lio->ifstate) & ~(state_flag)));
+}
+
+/**
+ * \brief wait for all pending requests to complete
+ * @param oct Pointer to Octeon device
+ *
+ * Called during shutdown sequence
+ */
+static inline int wait_for_pending_requests(struct octeon_device *oct)
+{
+	int i, pcount = 0;
+
+	for (i = 0; i < MAX_IO_PENDING_PKT_COUNT; i++) {
+		pcount = atomic_read(
+		    &oct->response_list[OCTEON_ORDERED_SC_LIST]
+			 .pending_req_count);
+		if (pcount)
+			schedule_timeout_uninterruptible(HZ / 10);
+		else
+			break;
+	}
+
+	if (pcount)
+		return 1;
+
+	return 0;
 }
 
 #endif

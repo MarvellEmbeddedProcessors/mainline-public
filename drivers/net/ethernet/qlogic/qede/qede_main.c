@@ -545,6 +545,7 @@ static const struct net_device_ops qede_netdev_ops = {
 #endif
 	.ndo_vlan_rx_add_vid = qede_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = qede_vlan_rx_kill_vid,
+	.ndo_fix_features = qede_fix_features,
 	.ndo_set_features = qede_set_features,
 	.ndo_get_stats64 = qede_get_stats64,
 #ifdef CONFIG_QED_SRIOV
@@ -556,7 +557,7 @@ static const struct net_device_ops qede_netdev_ops = {
 	.ndo_udp_tunnel_add = qede_udp_tunnel_add,
 	.ndo_udp_tunnel_del = qede_udp_tunnel_del,
 	.ndo_features_check = qede_features_check,
-	.ndo_xdp = qede_xdp,
+	.ndo_bpf = qede_xdp,
 #ifdef CONFIG_RFS_ACCEL
 	.ndo_rx_flow_steer = qede_rx_flow_steer,
 #endif
@@ -572,6 +573,7 @@ static const struct net_device_ops qede_netdev_vf_ops = {
 	.ndo_change_mtu = qede_change_mtu,
 	.ndo_vlan_rx_add_vid = qede_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = qede_vlan_rx_kill_vid,
+	.ndo_fix_features = qede_fix_features,
 	.ndo_set_features = qede_set_features,
 	.ndo_get_stats64 = qede_get_stats64,
 	.ndo_udp_tunnel_add = qede_udp_tunnel_add,
@@ -589,12 +591,13 @@ static const struct net_device_ops qede_netdev_vf_xdp_ops = {
 	.ndo_change_mtu = qede_change_mtu,
 	.ndo_vlan_rx_add_vid = qede_vlan_rx_add_vid,
 	.ndo_vlan_rx_kill_vid = qede_vlan_rx_kill_vid,
+	.ndo_fix_features = qede_fix_features,
 	.ndo_set_features = qede_set_features,
 	.ndo_get_stats64 = qede_get_stats64,
 	.ndo_udp_tunnel_add = qede_udp_tunnel_add,
 	.ndo_udp_tunnel_del = qede_udp_tunnel_del,
 	.ndo_features_check = qede_features_check,
-	.ndo_xdp = qede_xdp,
+	.ndo_bpf = qede_xdp,
 };
 
 /* -------------------------------------------------------------------------
@@ -676,7 +679,7 @@ static void qede_init_ndev(struct qede_dev *edev)
 	ndev->priv_flags |= IFF_UNICAST_FLT;
 
 	/* user-changeble features */
-	hw_features = NETIF_F_GRO | NETIF_F_SG |
+	hw_features = NETIF_F_GRO | NETIF_F_GRO_HW | NETIF_F_SG |
 		      NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
 		      NETIF_F_TSO | NETIF_F_TSO6;
 
@@ -762,6 +765,12 @@ static void qede_free_fp_array(struct qede_dev *edev)
 			fp = &edev->fp_array[i];
 
 			kfree(fp->sb_info);
+			/* Handle mem alloc failure case where qede_init_fp
+			 * didn't register xdp_rxq_info yet.
+			 * Implicit only (fp->type & QEDE_FASTPATH_RX)
+			 */
+			if (fp->rxq && xdp_rxq_info_is_reg(&fp->rxq->xdp_rxq))
+				xdp_rxq_info_unreg(&fp->rxq->xdp_rxq);
 			kfree(fp->rxq);
 			kfree(fp->xdp_tx);
 			kfree(fp->txq);
@@ -873,9 +882,7 @@ static void qede_update_pf_params(struct qed_dev *cdev)
 	 */
 	pf_params.eth_pf_params.num_vf_cons = 48;
 
-#ifdef CONFIG_RFS_ACCEL
 	pf_params.eth_pf_params.num_arfs_filters = QEDE_RFS_MAX_FLTR;
-#endif
 	qed_ops->common->update_pf_params(cdev, &pf_params);
 }
 
@@ -1070,10 +1077,6 @@ static void __qede_remove(struct pci_dev *pdev, enum qede_remove_mode mode)
 
 	pci_set_drvdata(pdev, NULL);
 
-	/* Release edev's reference to XDP's bpf if such exist */
-	if (edev->xdp_prog)
-		bpf_prog_put(edev->xdp_prog);
-
 	/* Use global ops since we've freed edev */
 	qed_ops->common->slowpath_stop(cdev);
 	if (system_state == SYSTEM_POWER_OFF)
@@ -1150,7 +1153,7 @@ static void qede_free_mem_sb(struct qede_dev *edev, struct qed_sb_info *sb_info,
 static int qede_alloc_mem_sb(struct qede_dev *edev,
 			     struct qed_sb_info *sb_info, u16 sb_id)
 {
-	struct status_block *sb_virt;
+	struct status_block_e4 *sb_virt;
 	dma_addr_t sb_phys;
 	int rc;
 
@@ -1234,17 +1237,8 @@ static int qede_alloc_sge_mem(struct qede_dev *edev, struct qede_rx_queue *rxq)
 	dma_addr_t mapping;
 	int i;
 
-	/* Don't perform FW aggregations in case of XDP */
-	if (edev->xdp_prog)
-		edev->gro_disable = 1;
-
 	if (edev->gro_disable)
 		return 0;
-
-	if (edev->ndev->mtu > PAGE_SIZE) {
-		edev->gro_disable = 1;
-		return 0;
-	}
 
 	for (i = 0; i < ETH_TPA_MAX_AGGS_NUM; i++) {
 		struct qede_agg_info *tpa_info = &rxq->tpa_info[i];
@@ -1275,6 +1269,7 @@ static int qede_alloc_sge_mem(struct qede_dev *edev, struct qede_rx_queue *rxq)
 err:
 	qede_free_sge_mem(edev, rxq);
 	edev->gro_disable = 1;
+	edev->ndev->features &= ~NETIF_F_GRO_HW;
 	return -ENOMEM;
 }
 
@@ -1504,6 +1499,10 @@ static void qede_init_fp(struct qede_dev *edev)
 			else
 				fp->rxq->data_direction = DMA_FROM_DEVICE;
 			fp->rxq->dev = &edev->pdev->dev;
+
+			/* Driver have no error path from here */
+			WARN_ON(xdp_rxq_info_reg(&fp->rxq->xdp_rxq, edev->ndev,
+						 fp->rxq->rxq_id) < 0);
 		}
 
 		if (fp->type & QEDE_FASTPATH_TX) {
@@ -1517,7 +1516,7 @@ static void qede_init_fp(struct qede_dev *edev)
 			 edev->ndev->name, queue_id);
 	}
 
-	edev->gro_disable = !(edev->ndev->features & NETIF_F_GRO);
+	edev->gro_disable = !(edev->ndev->features & NETIF_F_GRO_HW);
 }
 
 static int qede_set_real_num_queues(struct qede_dev *edev)
@@ -1984,12 +1983,12 @@ static void qede_unload(struct qede_dev *edev, enum qede_unload_mode mode,
 
 	qede_vlan_mark_nonconfigured(edev);
 	edev->ops->fastpath_stop(edev->cdev);
-#ifdef CONFIG_RFS_ACCEL
+
 	if (!IS_VF(edev) && edev->dev_info.common.num_hwfns == 1) {
 		qede_poll_for_freeing_arfs_filters(edev);
 		qede_free_arfs(edev);
 	}
-#endif
+
 	/* Release the interrupts */
 	qede_sync_free_irqs(edev);
 	edev->ops->common->set_fp_int(edev->cdev, 0);
@@ -2041,13 +2040,12 @@ static int qede_load(struct qede_dev *edev, enum qede_load_mode mode,
 	if (rc)
 		goto err2;
 
-#ifdef CONFIG_RFS_ACCEL
 	if (!IS_VF(edev) && edev->dev_info.common.num_hwfns == 1) {
 		rc = qede_alloc_arfs(edev);
 		if (rc)
 			DP_NOTICE(edev, "aRFS memory allocation failed\n");
 	}
-#endif
+
 	qede_napi_add_enable(edev);
 	DP_INFO(edev, "Napi added and enabled\n");
 

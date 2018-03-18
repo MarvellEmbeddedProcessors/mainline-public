@@ -43,12 +43,6 @@ static unsigned int
 iptable_security_hook(void *priv, struct sk_buff *skb,
 		      const struct nf_hook_state *state)
 {
-	if (state->hook == NF_INET_LOCAL_OUT &&
-	    (skb->len < sizeof(struct iphdr) ||
-	     ip_hdrlen(skb) < sizeof(struct iphdr)))
-		/* Somebody is playing with raw sockets. */
-		return NF_ACCEPT;
-
 	return ipt_do_table(skb, state, state->net->ipv4.iptable_security);
 }
 
@@ -82,6 +76,7 @@ static void __net_exit iptable_security_net_exit(struct net *net)
 
 static struct pernet_operations iptable_security_net_ops = {
 	.exit = iptable_security_net_exit,
+	.async = true,
 };
 
 static int __init iptable_security_init(void)

@@ -67,11 +67,12 @@ static unsigned int iptable_nat_ipv4_local_fn(void *priv,
 	return nf_nat_ipv4_local_fn(priv, skb, state, iptable_nat_do_chain);
 }
 
-static struct nf_hook_ops nf_nat_ipv4_ops[] __read_mostly = {
+static const struct nf_hook_ops nf_nat_ipv4_ops[] = {
 	/* Before packet filtering, change destination */
 	{
 		.hook		= iptable_nat_ipv4_in,
 		.pf		= NFPROTO_IPV4,
+		.nat_hook	= true,
 		.hooknum	= NF_INET_PRE_ROUTING,
 		.priority	= NF_IP_PRI_NAT_DST,
 	},
@@ -79,6 +80,7 @@ static struct nf_hook_ops nf_nat_ipv4_ops[] __read_mostly = {
 	{
 		.hook		= iptable_nat_ipv4_out,
 		.pf		= NFPROTO_IPV4,
+		.nat_hook	= true,
 		.hooknum	= NF_INET_POST_ROUTING,
 		.priority	= NF_IP_PRI_NAT_SRC,
 	},
@@ -86,6 +88,7 @@ static struct nf_hook_ops nf_nat_ipv4_ops[] __read_mostly = {
 	{
 		.hook		= iptable_nat_ipv4_local_fn,
 		.pf		= NFPROTO_IPV4,
+		.nat_hook	= true,
 		.hooknum	= NF_INET_LOCAL_OUT,
 		.priority	= NF_IP_PRI_NAT_DST,
 	},
@@ -93,6 +96,7 @@ static struct nf_hook_ops nf_nat_ipv4_ops[] __read_mostly = {
 	{
 		.hook		= iptable_nat_ipv4_fn,
 		.pf		= NFPROTO_IPV4,
+		.nat_hook	= true,
 		.hooknum	= NF_INET_LOCAL_IN,
 		.priority	= NF_IP_PRI_NAT_SRC,
 	},
@@ -125,6 +129,7 @@ static void __net_exit iptable_nat_net_exit(struct net *net)
 
 static struct pernet_operations iptable_nat_net_ops = {
 	.exit	= iptable_nat_net_exit,
+	.async	= true,
 };
 
 static int __init iptable_nat_init(void)

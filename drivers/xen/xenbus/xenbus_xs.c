@@ -227,6 +227,8 @@ static void xs_send(struct xb_req_data *req, struct xsd_sockmsg *msg)
 	req->state = xb_req_state_queued;
 	init_waitqueue_head(&req->wq);
 
+	/* Save the caller req_id and restore it later in the reply */
+	req->caller_req_id = req->msg.req_id;
 	req->msg.req_id = xs_request_enter(req);
 
 	mutex_lock(&xb_write_mutex);
@@ -310,6 +312,7 @@ static void *xs_talkv(struct xenbus_transaction t,
 	req->num_vecs = num_vecs;
 	req->cb = xs_wake_up;
 
+	msg.req_id = 0;
 	msg.tx_id = t.id;
 	msg.type = type;
 	msg.len = 0;
@@ -857,6 +860,8 @@ static int xenwatch_thread(void *unused)
 	struct list_head *ent;
 	struct xs_watch_event *event;
 
+	xenwatch_pid = current->pid;
+
 	for (;;) {
 		wait_event_interruptible(watch_events_waitq,
 					 !list_empty(&watch_events));
@@ -925,7 +930,6 @@ int xs_init(void)
 	task = kthread_run(xenwatch_thread, NULL, "xenwatch");
 	if (IS_ERR(task))
 		return PTR_ERR(task);
-	xenwatch_pid = task->pid;
 
 	/* shutdown watches for kexec boot */
 	xs_reset_watches();

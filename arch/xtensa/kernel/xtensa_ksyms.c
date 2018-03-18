@@ -41,7 +41,12 @@
 EXPORT_SYMBOL(memset);
 EXPORT_SYMBOL(memcpy);
 EXPORT_SYMBOL(memmove);
+EXPORT_SYMBOL(__memset);
+EXPORT_SYMBOL(__memcpy);
+EXPORT_SYMBOL(__memmove);
+#ifndef CONFIG_GENERIC_STRNCPY_FROM_USER
 EXPORT_SYMBOL(__strncpy_user);
+#endif
 EXPORT_SYMBOL(clear_page);
 EXPORT_SYMBOL(copy_page);
 
@@ -94,13 +99,11 @@ unsigned long __sync_fetch_and_or_4(unsigned long *p, unsigned long v)
 }
 EXPORT_SYMBOL(__sync_fetch_and_or_4);
 
-#ifdef CONFIG_NET
 /*
  * Networking support
  */
 EXPORT_SYMBOL(csum_partial);
 EXPORT_SYMBOL(csum_partial_copy_generic);
-#endif /* CONFIG_NET */
 
 /*
  * Architecture-specific symbols

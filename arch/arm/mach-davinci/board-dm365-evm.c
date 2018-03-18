@@ -23,7 +23,7 @@
 #include <linux/mtd/mtd.h>
 #include <linux/mtd/partitions.h>
 #include <linux/slab.h>
-#include <linux/mtd/nand.h>
+#include <linux/mtd/rawnand.h>
 #include <linux/input.h>
 #include <linux/spi/spi.h>
 #include <linux/spi/eeprom.h>
@@ -726,7 +726,7 @@ static struct spi_eeprom at25640 = {
 	.flags		= EE_ADDR2,
 };
 
-static struct spi_board_info dm365_evm_spi_info[] __initconst = {
+static const struct spi_board_info dm365_evm_spi_info[] __initconst = {
 	{
 		.modalias	= "at25",
 		.platform_data	= &at25640,

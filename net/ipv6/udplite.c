@@ -94,7 +94,6 @@ void udplitev6_exit(void)
 #ifdef CONFIG_PROC_FS
 
 static const struct file_operations udplite6_afinfo_seq_fops = {
-	.owner    = THIS_MODULE,
 	.open     = udp_seq_open,
 	.read     = seq_read,
 	.llseek   = seq_lseek,
@@ -124,6 +123,7 @@ static void __net_exit udplite6_proc_exit_net(struct net *net)
 static struct pernet_operations udplite6_net_ops = {
 	.init = udplite6_proc_init_net,
 	.exit = udplite6_proc_exit_net,
+	.async = true,
 };
 
 int __init udplite6_proc_init(void)

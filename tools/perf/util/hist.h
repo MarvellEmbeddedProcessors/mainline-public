@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef __PERF_HIST_H
 #define __PERF_HIST_H
 
@@ -47,6 +48,7 @@ enum hist_column {
 	HISTC_GLOBAL_WEIGHT,
 	HISTC_MEM_DADDR_SYMBOL,
 	HISTC_MEM_DADDR_DSO,
+	HISTC_MEM_PHYS_DADDR,
 	HISTC_MEM_LOCKED,
 	HISTC_MEM_TLB,
 	HISTC_MEM_LVL,
@@ -428,7 +430,8 @@ int hist_entry__tui_annotate(struct hist_entry *he, struct perf_evsel *evsel,
 int perf_evlist__tui_browse_hists(struct perf_evlist *evlist, const char *help,
 				  struct hist_browser_timer *hbt,
 				  float min_pcnt,
-				  struct perf_env *env);
+				  struct perf_env *env,
+				  bool warn_lost_event);
 int script_browse(const char *script_opt);
 #else
 static inline
@@ -436,7 +439,8 @@ int perf_evlist__tui_browse_hists(struct perf_evlist *evlist __maybe_unused,
 				  const char *help __maybe_unused,
 				  struct hist_browser_timer *hbt __maybe_unused,
 				  float min_pcnt __maybe_unused,
-				  struct perf_env *env __maybe_unused)
+				  struct perf_env *env __maybe_unused,
+				  bool warn_lost_event __maybe_unused)
 {
 	return 0;
 }

@@ -155,8 +155,8 @@ static void i40e_dbg_dump_vsi_seid(struct i40e_pf *pf, int seid)
 		dev_info(&pf->pdev->dev, "        vlan_features = 0x%08lx\n",
 			 (unsigned long int)nd->vlan_features);
 	}
-	dev_info(&pf->pdev->dev,
-		 "    vlgrp: & = %p\n", vsi->active_vlans);
+	dev_info(&pf->pdev->dev, "    active_vlans is %s\n",
+		 vsi->active_vlans ? "<valid>" : "<null>");
 	dev_info(&pf->pdev->dev,
 		 "    flags = 0x%08lx, netdev_registered = %i, current_netdev_flags = 0x%04x\n",
 		 vsi->flags, vsi->netdev_registered, vsi->current_netdev_flags);
@@ -264,22 +264,14 @@ static void i40e_dbg_dump_vsi_seid(struct i40e_pf *pf, int seid)
 		 vsi->rx_buf_failed, vsi->rx_page_failed);
 	rcu_read_lock();
 	for (i = 0; i < vsi->num_queue_pairs; i++) {
-		struct i40e_ring *rx_ring = ACCESS_ONCE(vsi->rx_rings[i]);
+		struct i40e_ring *rx_ring = READ_ONCE(vsi->rx_rings[i]);
 
 		if (!rx_ring)
 			continue;
 
 		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: desc = %p\n",
-			 i, rx_ring->desc);
-		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: dev = %p, netdev = %p, rx_bi = %p\n",
-			 i, rx_ring->dev,
-			 rx_ring->netdev,
-			 rx_ring->rx_bi);
-		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: state = %li, queue_index = %d, reg_idx = %d\n",
-			 i, rx_ring->state,
+			 "    rx_rings[%i]: state = %lu, queue_index = %d, reg_idx = %d\n",
+			 i, *rx_ring->state,
 			 rx_ring->queue_index,
 			 rx_ring->reg_idx);
 		dev_info(&pf->pdev->dev,
@@ -307,35 +299,22 @@ static void i40e_dbg_dump_vsi_seid(struct i40e_pf *pf, int seid)
 			 rx_ring->rx_stats.realloc_count,
 			 rx_ring->rx_stats.page_reuse_count);
 		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: size = %i, dma = 0x%08lx\n",
-			 i, rx_ring->size,
-			 (unsigned long int)rx_ring->dma);
+			 "    rx_rings[%i]: size = %i\n",
+			 i, rx_ring->size);
 		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: vsi = %p, q_vector = %p\n",
-			 i, rx_ring->vsi,
-			 rx_ring->q_vector);
-		dev_info(&pf->pdev->dev,
-			 "    rx_rings[%i]: rx_itr_setting = %d (%s)\n",
-			 i, rx_ring->rx_itr_setting,
-			 ITR_IS_DYNAMIC(rx_ring->rx_itr_setting) ? "dynamic" : "fixed");
+			 "    rx_rings[%i]: itr_setting = %d (%s)\n",
+			 i, rx_ring->itr_setting,
+			 ITR_IS_DYNAMIC(rx_ring->itr_setting) ? "dynamic" : "fixed");
 	}
 	for (i = 0; i < vsi->num_queue_pairs; i++) {
-		struct i40e_ring *tx_ring = ACCESS_ONCE(vsi->tx_rings[i]);
+		struct i40e_ring *tx_ring = READ_ONCE(vsi->tx_rings[i]);
 
 		if (!tx_ring)
 			continue;
 
 		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: desc = %p\n",
-			 i, tx_ring->desc);
-		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: dev = %p, netdev = %p, tx_bi = %p\n",
-			 i, tx_ring->dev,
-			 tx_ring->netdev,
-			 tx_ring->tx_bi);
-		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: state = %li, queue_index = %d, reg_idx = %d\n",
-			 i, tx_ring->state,
+			 "    tx_rings[%i]: state = %lu, queue_index = %d, reg_idx = %d\n",
+			 i, *tx_ring->state,
 			 tx_ring->queue_index,
 			 tx_ring->reg_idx);
 		dev_info(&pf->pdev->dev,
@@ -355,20 +334,15 @@ static void i40e_dbg_dump_vsi_seid(struct i40e_pf *pf, int seid)
 			 tx_ring->tx_stats.tx_busy,
 			 tx_ring->tx_stats.tx_done_old);
 		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: size = %i, dma = 0x%08lx\n",
-			 i, tx_ring->size,
-			 (unsigned long int)tx_ring->dma);
-		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: vsi = %p, q_vector = %p\n",
-			 i, tx_ring->vsi,
-			 tx_ring->q_vector);
+			 "    tx_rings[%i]: size = %i\n",
+			 i, tx_ring->size);
 		dev_info(&pf->pdev->dev,
 			 "    tx_rings[%i]: DCB tc = %d\n",
 			 i, tx_ring->dcb_tc);
 		dev_info(&pf->pdev->dev,
-			 "    tx_rings[%i]: tx_itr_setting = %d (%s)\n",
-			 i, tx_ring->tx_itr_setting,
-			 ITR_IS_DYNAMIC(tx_ring->tx_itr_setting) ? "dynamic" : "fixed");
+			 "    tx_rings[%i]: itr_setting = %d (%s)\n",
+			 i, tx_ring->itr_setting,
+			 ITR_IS_DYNAMIC(tx_ring->itr_setting) ? "dynamic" : "fixed");
 	}
 	rcu_read_unlock();
 	dev_info(&pf->pdev->dev,
@@ -466,8 +440,6 @@ static void i40e_dbg_dump_vsi_seid(struct i40e_pf *pf, int seid)
 		 vsi->info.resp_reserved[6], vsi->info.resp_reserved[7],
 		 vsi->info.resp_reserved[8], vsi->info.resp_reserved[9],
 		 vsi->info.resp_reserved[10], vsi->info.resp_reserved[11]);
-	if (vsi->back)
-		dev_info(&pf->pdev->dev, "    PF = %p\n", vsi->back);
 	dev_info(&pf->pdev->dev, "    idx = %d\n", vsi->idx);
 	dev_info(&pf->pdev->dev,
 		 "    tc_config: numtc = %d, enabled_tc = 0x%x\n",
@@ -798,8 +770,7 @@ static ssize_t i40e_dbg_command_write(struct file *filp,
 		 */
 		if (!(pf->flags & I40E_FLAG_VEB_MODE_ENABLED)) {
 			pf->flags |= I40E_FLAG_VEB_MODE_ENABLED;
-			i40e_do_reset_safe(pf,
-					   BIT_ULL(__I40E_PF_RESET_REQUESTED));
+			i40e_do_reset_safe(pf, I40E_PF_RESET_FLAG);
 		}
 
 		vsi = i40e_vsi_setup(pf, I40E_VSI_VMDQ2, vsi_seid, 0);

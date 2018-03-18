@@ -98,7 +98,7 @@ static void params_from_rate(unsigned long requested_rate,
 		*sdm = SDM_DEN - 1;
 	} else {
 		*n2 = div;
-		*sdm = DIV_ROUND_UP(rem * SDM_DEN, requested_rate);
+		*sdm = DIV_ROUND_UP_ULL((u64)rem * SDM_DEN, requested_rate);
 	}
 }
 
@@ -160,6 +160,13 @@ static int mpll_set_rate(struct clk_hw *hw,
 	reg = readl(mpll->base + p->reg_off);
 	reg = PARM_SET(p->width, p->shift, reg, 1);
 	writel(reg, mpll->base + p->reg_off);
+
+	p = &mpll->ssen;
+	if (p->width != 0) {
+		reg = readl(mpll->base + p->reg_off);
+		reg = PARM_SET(p->width, p->shift, reg, 1);
+		writel(reg, mpll->base + p->reg_off);
+	}
 
 	p = &mpll->n2;
 	reg = readl(mpll->base + p->reg_off);

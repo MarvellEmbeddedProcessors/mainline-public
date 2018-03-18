@@ -49,7 +49,7 @@ extern int acpi_fix_pin2_polarity;
 extern int acpi_disable_cmcff;
 
 extern u8 acpi_sci_flags;
-extern int acpi_sci_override_gsi;
+extern u32 acpi_sci_override_gsi;
 void acpi_pic_sci_set_trigger(unsigned int, u16);
 
 struct device;
@@ -94,7 +94,7 @@ static inline unsigned int acpi_processor_cstate_check(unsigned int max_cstate)
 	if (boot_cpu_data.x86 == 0x0F &&
 	    boot_cpu_data.x86_vendor == X86_VENDOR_AMD &&
 	    boot_cpu_data.x86_model <= 0x05 &&
-	    boot_cpu_data.x86_mask < 0x0A)
+	    boot_cpu_data.x86_stepping < 0x0A)
 		return 1;
 	else if (boot_cpu_has(X86_BUG_AMD_APIC_C1E))
 		return 1;
@@ -162,12 +162,13 @@ static inline pgprot_t arch_apei_get_mem_attribute(phys_addr_t addr)
 	 * you call efi_mem_attributes() during boot and at runtime,
 	 * you could theoretically see different attributes.
 	 *
-	 * Since we are yet to see any x86 platforms that require
-	 * anything other than PAGE_KERNEL (some arm64 platforms
-	 * require the equivalent of PAGE_KERNEL_NOCACHE), return that
-	 * until we know differently.
+	 * We are yet to see any x86 platforms that require anything
+	 * other than PAGE_KERNEL (some ARM64 platforms require the
+	 * equivalent of PAGE_KERNEL_NOCACHE). Additionally, if SME
+	 * is active, the ACPI information will not be encrypted,
+	 * so return PAGE_KERNEL_NOENC until we know differently.
 	 */
-	 return PAGE_KERNEL;
+	return PAGE_KERNEL_NOENC;
 }
 #endif
 

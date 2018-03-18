@@ -155,8 +155,6 @@ void t4vf_os_link_changed(struct adapter *adapter, int pidx, int link_ok)
 		const char *fc;
 		const struct port_info *pi = netdev_priv(dev);
 
-		netif_carrier_on(dev);
-
 		switch (pi->link_cfg.speed) {
 		case 100:
 			s = "100Mbps";
@@ -182,7 +180,7 @@ void t4vf_os_link_changed(struct adapter *adapter, int pidx, int link_ok)
 			break;
 		}
 
-		switch (pi->link_cfg.fc) {
+		switch ((int)pi->link_cfg.fc) {
 		case PAUSE_RX:
 			fc = "RX";
 			break;
@@ -191,7 +189,7 @@ void t4vf_os_link_changed(struct adapter *adapter, int pidx, int link_ok)
 			fc = "TX";
 			break;
 
-		case PAUSE_RX|PAUSE_TX:
+		case PAUSE_RX | PAUSE_TX:
 			fc = "RX/TX";
 			break;
 
@@ -202,7 +200,6 @@ void t4vf_os_link_changed(struct adapter *adapter, int pidx, int link_ok)
 
 		netdev_info(dev, "link up, %s, full-duplex, %s PAUSE\n", s, fc);
 	} else {
-		netif_carrier_off(dev);
 		netdev_info(dev, "link down\n");
 	}
 }
@@ -278,6 +275,17 @@ static int link_start(struct net_device *dev)
 	 */
 	if (ret == 0)
 		ret = t4vf_enable_vi(pi->adapter, pi->viid, true, true);
+
+	/* The Virtual Interfaces are connected to an internal switch on the
+	 * chip which allows VIs attached to the same port to talk to each
+	 * other even when the port link is down.  As a result, we generally
+	 * want to always report a VI's link as being "up", provided there are
+	 * no errors in enabling vi.
+	 */
+
+	if (ret == 0)
+		netif_carrier_on(dev);
+
 	return ret;
 }
 
@@ -791,6 +799,8 @@ static int cxgb4vf_open(struct net_device *dev)
 	if (err)
 		goto err_unwind;
 
+	pi->vlan_id = t4vf_get_vf_vlan_acl(adapter);
+
 	netif_tx_start_all_queues(dev);
 	set_bit(pi->port_id, &adapter->open_device_map);
 	return 0;
@@ -1213,7 +1223,11 @@ static int from_fw_port_mod_type(enum fw_port_type port_type,
 	} else if (port_type == FW_PORT_TYPE_SFP ||
 		   port_type == FW_PORT_TYPE_QSFP_10G ||
 		   port_type == FW_PORT_TYPE_QSA ||
-		   port_type == FW_PORT_TYPE_QSFP) {
+		   port_type == FW_PORT_TYPE_QSFP ||
+		   port_type == FW_PORT_TYPE_CR4_QSFP ||
+		   port_type == FW_PORT_TYPE_CR_QSFP ||
+		   port_type == FW_PORT_TYPE_CR2_QSFP ||
+		   port_type == FW_PORT_TYPE_SFP28) {
 		if (mod_type == FW_PORT_MOD_TYPE_LR ||
 		    mod_type == FW_PORT_MOD_TYPE_SR ||
 		    mod_type == FW_PORT_MOD_TYPE_ER ||
@@ -1224,6 +1238,10 @@ static int from_fw_port_mod_type(enum fw_port_type port_type,
 			return PORT_DA;
 		else
 			return PORT_OTHER;
+	} else if (port_type == FW_PORT_TYPE_KR4_100G ||
+		   port_type == FW_PORT_TYPE_KR_SFP28 ||
+		   port_type == FW_PORT_TYPE_KR_XLAUI) {
+		return PORT_NONE;
 	}
 
 	return PORT_OTHER;
@@ -1242,12 +1260,13 @@ static void fw_caps_to_lmm(enum fw_port_type port_type,
 			   unsigned int fw_caps,
 			   unsigned long *link_mode_mask)
 {
-	#define SET_LMM(__lmm_name) __set_bit(ETHTOOL_LINK_MODE_ ## __lmm_name\
-			 ## _BIT, link_mode_mask)
+	#define SET_LMM(__lmm_name) \
+		__set_bit(ETHTOOL_LINK_MODE_ ## __lmm_name ## _BIT, \
+			  link_mode_mask)
 
 	#define FW_CAPS_TO_LMM(__fw_name, __lmm_name) \
 		do { \
-			if (fw_caps & FW_PORT_CAP_ ## __fw_name) \
+			if (fw_caps & FW_PORT_CAP32_ ## __fw_name) \
 				SET_LMM(__lmm_name); \
 		} while (0)
 
@@ -1270,22 +1289,22 @@ static void fw_caps_to_lmm(enum fw_port_type port_type,
 
 	case FW_PORT_TYPE_KR:
 		SET_LMM(Backplane);
-		SET_LMM(10000baseKR_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKR_Full);
 		break;
 
 	case FW_PORT_TYPE_BP_AP:
 		SET_LMM(Backplane);
-		SET_LMM(10000baseR_FEC);
-		SET_LMM(10000baseKR_Full);
-		SET_LMM(1000baseKX_Full);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseKX_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseR_FEC);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKR_Full);
 		break;
 
 	case FW_PORT_TYPE_BP4_AP:
 		SET_LMM(Backplane);
-		SET_LMM(10000baseR_FEC);
-		SET_LMM(10000baseKR_Full);
-		SET_LMM(1000baseKX_Full);
-		SET_LMM(10000baseKX4_Full);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseKX_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseR_FEC);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKR_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKX4_Full);
 		break;
 
 	case FW_PORT_TYPE_FIBER_XFI:
@@ -1301,19 +1320,47 @@ static void fw_caps_to_lmm(enum fw_port_type port_type,
 	case FW_PORT_TYPE_BP40_BA:
 	case FW_PORT_TYPE_QSFP:
 		SET_LMM(FIBRE);
-		SET_LMM(40000baseSR4_Full);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_40G, 40000baseSR4_Full);
 		break;
 
 	case FW_PORT_TYPE_CR_QSFP:
 	case FW_PORT_TYPE_SFP28:
 		SET_LMM(FIBRE);
-		SET_LMM(25000baseCR_Full);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_25G, 25000baseCR_Full);
+		break;
+
+	case FW_PORT_TYPE_KR_SFP28:
+		SET_LMM(Backplane);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKR_Full);
+		FW_CAPS_TO_LMM(SPEED_25G, 25000baseKR_Full);
+		break;
+
+	case FW_PORT_TYPE_KR_XLAUI:
+		SET_LMM(Backplane);
+		FW_CAPS_TO_LMM(SPEED_1G, 1000baseKX_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseKR_Full);
+		FW_CAPS_TO_LMM(SPEED_40G, 40000baseKR4_Full);
+		break;
+
+	case FW_PORT_TYPE_CR2_QSFP:
+		SET_LMM(FIBRE);
+		FW_CAPS_TO_LMM(SPEED_50G, 50000baseSR2_Full);
 		break;
 
 	case FW_PORT_TYPE_KR4_100G:
 	case FW_PORT_TYPE_CR4_QSFP:
 		SET_LMM(FIBRE);
-		SET_LMM(100000baseCR4_Full);
+		FW_CAPS_TO_LMM(SPEED_1G,  1000baseT_Full);
+		FW_CAPS_TO_LMM(SPEED_10G, 10000baseSR_Full);
+		FW_CAPS_TO_LMM(SPEED_40G, 40000baseSR4_Full);
+		FW_CAPS_TO_LMM(SPEED_25G, 25000baseCR_Full);
+		FW_CAPS_TO_LMM(SPEED_50G, 50000baseCR2_Full);
+		FW_CAPS_TO_LMM(SPEED_100G, 100000baseCR4_Full);
 		break;
 
 	default:
@@ -1329,11 +1376,17 @@ static void fw_caps_to_lmm(enum fw_port_type port_type,
 }
 
 static int cxgb4vf_get_link_ksettings(struct net_device *dev,
-				      struct ethtool_link_ksettings
-							*link_ksettings)
+				  struct ethtool_link_ksettings *link_ksettings)
 {
-	const struct port_info *pi = netdev_priv(dev);
+	struct port_info *pi = netdev_priv(dev);
 	struct ethtool_link_settings *base = &link_ksettings->base;
+
+	/* For the nonce, the Firmware doesn't send up Port State changes
+	 * when the Virtual Interface attached to the Port is down.  So
+	 * if it's down, let's grab any changes.
+	 */
+	if (!netif_running(dev))
+		(void)t4vf_update_port_info(pi);
 
 	ethtool_link_ksettings_zero_link_mode(link_ksettings, supported);
 	ethtool_link_ksettings_zero_link_mode(link_ksettings, advertising);
@@ -1351,11 +1404,11 @@ static int cxgb4vf_get_link_ksettings(struct net_device *dev,
 		base->mdio_support = 0;
 	}
 
-	fw_caps_to_lmm(pi->port_type, pi->link_cfg.supported,
+	fw_caps_to_lmm(pi->port_type, pi->link_cfg.pcaps,
 		       link_ksettings->link_modes.supported);
-	fw_caps_to_lmm(pi->port_type, pi->link_cfg.advertising,
+	fw_caps_to_lmm(pi->port_type, pi->link_cfg.acaps,
 		       link_ksettings->link_modes.advertising);
-	fw_caps_to_lmm(pi->port_type, pi->link_cfg.lp_advertising,
+	fw_caps_to_lmm(pi->port_type, pi->link_cfg.lpacaps,
 		       link_ksettings->link_modes.lp_advertising);
 
 	if (netif_carrier_ok(dev)) {
@@ -1367,13 +1420,70 @@ static int cxgb4vf_get_link_ksettings(struct net_device *dev,
 	}
 
 	base->autoneg = pi->link_cfg.autoneg;
-	if (pi->link_cfg.supported & FW_PORT_CAP_ANEG)
+	if (pi->link_cfg.pcaps & FW_PORT_CAP32_ANEG)
 		ethtool_link_ksettings_add_link_mode(link_ksettings,
 						     supported, Autoneg);
 	if (pi->link_cfg.autoneg)
 		ethtool_link_ksettings_add_link_mode(link_ksettings,
 						     advertising, Autoneg);
 
+	return 0;
+}
+
+/* Translate the Firmware FEC value into the ethtool value. */
+static inline unsigned int fwcap_to_eth_fec(unsigned int fw_fec)
+{
+	unsigned int eth_fec = 0;
+
+	if (fw_fec & FW_PORT_CAP32_FEC_RS)
+		eth_fec |= ETHTOOL_FEC_RS;
+	if (fw_fec & FW_PORT_CAP32_FEC_BASER_RS)
+		eth_fec |= ETHTOOL_FEC_BASER;
+
+	/* if nothing is set, then FEC is off */
+	if (!eth_fec)
+		eth_fec = ETHTOOL_FEC_OFF;
+
+	return eth_fec;
+}
+
+/* Translate Common Code FEC value into ethtool value. */
+static inline unsigned int cc_to_eth_fec(unsigned int cc_fec)
+{
+	unsigned int eth_fec = 0;
+
+	if (cc_fec & FEC_AUTO)
+		eth_fec |= ETHTOOL_FEC_AUTO;
+	if (cc_fec & FEC_RS)
+		eth_fec |= ETHTOOL_FEC_RS;
+	if (cc_fec & FEC_BASER_RS)
+		eth_fec |= ETHTOOL_FEC_BASER;
+
+	/* if nothing is set, then FEC is off */
+	if (!eth_fec)
+		eth_fec = ETHTOOL_FEC_OFF;
+
+	return eth_fec;
+}
+
+static int cxgb4vf_get_fecparam(struct net_device *dev,
+				struct ethtool_fecparam *fec)
+{
+	const struct port_info *pi = netdev_priv(dev);
+	const struct link_config *lc = &pi->link_cfg;
+
+	/* Translate the Firmware FEC Support into the ethtool value.  We
+	 * always support IEEE 802.3 "automatic" selection of Link FEC type if
+	 * any FEC is supported.
+	 */
+	fec->fec = fwcap_to_eth_fec(lc->pcaps);
+	if (fec->fec != ETHTOOL_FEC_OFF)
+		fec->fec |= ETHTOOL_FEC_AUTO;
+
+	/* Translate the current internal FEC parameters into the
+	 * ethtool values.
+	 */
+	fec->active_fec = cc_to_eth_fec(lc->fec);
 	return 0;
 }
 
@@ -1750,6 +1860,7 @@ static void cxgb4vf_get_wol(struct net_device *dev,
 
 static const struct ethtool_ops cxgb4vf_ethtool_ops = {
 	.get_link_ksettings	= cxgb4vf_get_link_ksettings,
+	.get_fecparam		= cxgb4vf_get_fecparam,
 	.get_drvinfo		= cxgb4vf_get_drvinfo,
 	.get_msglevel		= cxgb4vf_get_msglevel,
 	.set_msglevel		= cxgb4vf_set_msglevel,
@@ -2888,6 +2999,24 @@ static int cxgb4vf_pci_probe(struct pci_dev *pdev,
 	 */
 	adapter->name = pci_name(pdev);
 	adapter->msg_enable = DFLT_MSG_ENABLE;
+
+	/* If possible, we use PCIe Relaxed Ordering Attribute to deliver
+	 * Ingress Packet Data to Free List Buffers in order to allow for
+	 * chipset performance optimizations between the Root Complex and
+	 * Memory Controllers.  (Messages to the associated Ingress Queue
+	 * notifying new Packet Placement in the Free Lists Buffers will be
+	 * send without the Relaxed Ordering Attribute thus guaranteeing that
+	 * all preceding PCIe Transaction Layer Packets will be processed
+	 * first.)  But some Root Complexes have various issues with Upstream
+	 * Transaction Layer Packets with the Relaxed Ordering Attribute set.
+	 * The PCIe devices which under the Root Complexes will be cleared the
+	 * Relaxed Ordering bit in the configuration space, So we check our
+	 * PCIe configuration space to see if it's flagged with advice against
+	 * using Relaxed Ordering.
+	 */
+	if (!pcie_relaxed_ordering_enabled(pdev))
+		adapter->flags |= ROOT_NO_RELAXED_ORDERING;
+
 	err = adap_init0(adapter);
 	if (err)
 		goto err_unmap_bar;

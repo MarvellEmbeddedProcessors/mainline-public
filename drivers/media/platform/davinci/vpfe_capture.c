@@ -26,8 +26,8 @@
  *
  *
  *    decoder(TVP5146/		YUV/
- * 	     MT9T001)   -->  Raw Bayer RGB ---> MUX -> VPFE (CCDC/ISIF)
- *    				data input              |      |
+ *	     MT9T001)   -->  Raw Bayer RGB ---> MUX -> VPFE (CCDC/ISIF)
+ *				data input              |      |
  *							V      |
  *						      SDRAM    |
  *							       V
@@ -47,7 +47,7 @@
  *    block such as IPIPE (on DM355 only).
  *
  *    Features supported
- *  		- MMAP IO
+ *		- MMAP IO
  *		- Capture using TVP5146 over BT.656
  *		- support for interfacing decoders using sub device model
  *		- Work with DM355 or DM6446 CCDC to do Raw Bayer RGB/YUV
@@ -115,7 +115,7 @@ static struct vpfe_config_params config_params = {
 };
 
 /* ccdc device registered */
-static struct ccdc_hw_device *ccdc_dev;
+static const struct ccdc_hw_device *ccdc_dev;
 /* lock for accessing ccdc information */
 static DEFINE_MUTEX(ccdc_lock);
 /* ccdc configuration */
@@ -203,7 +203,7 @@ static const struct vpfe_pixel_format *vpfe_lookup_pix_format(u32 pix_format)
  * vpfe_register_ccdc_device. CCDC module calls this to
  * register with vpfe capture
  */
-int vpfe_register_ccdc_device(struct ccdc_hw_device *dev)
+int vpfe_register_ccdc_device(const struct ccdc_hw_device *dev)
 {
 	int ret = 0;
 	printk(KERN_NOTICE "vpfe_register_ccdc_device: %s\n", dev->name);
@@ -259,7 +259,7 @@ EXPORT_SYMBOL(vpfe_register_ccdc_device);
  * vpfe_unregister_ccdc_device. CCDC module calls this to
  * unregister with vpfe capture
  */
-void vpfe_unregister_ccdc_device(struct ccdc_hw_device *dev)
+void vpfe_unregister_ccdc_device(const struct ccdc_hw_device *dev)
 {
 	if (!dev) {
 		printk(KERN_ERR "invalid ccdc device ptr\n");
@@ -279,45 +279,6 @@ void vpfe_unregister_ccdc_device(struct ccdc_hw_device *dev)
 	mutex_unlock(&ccdc_lock);
 }
 EXPORT_SYMBOL(vpfe_unregister_ccdc_device);
-
-/*
- * vpfe_get_ccdc_image_format - Get image parameters based on CCDC settings
- */
-static int vpfe_get_ccdc_image_format(struct vpfe_device *vpfe_dev,
-				 struct v4l2_format *f)
-{
-	struct v4l2_rect image_win;
-	enum ccdc_buftype buf_type;
-	enum ccdc_frmfmt frm_fmt;
-
-	memset(f, 0, sizeof(*f));
-	f->type = V4L2_BUF_TYPE_VIDEO_OUTPUT;
-	ccdc_dev->hw_ops.get_image_window(&image_win);
-	f->fmt.pix.width = image_win.width;
-	f->fmt.pix.height = image_win.height;
-	f->fmt.pix.bytesperline = ccdc_dev->hw_ops.get_line_length();
-	f->fmt.pix.sizeimage = f->fmt.pix.bytesperline *
-				f->fmt.pix.height;
-	buf_type = ccdc_dev->hw_ops.get_buftype();
-	f->fmt.pix.pixelformat = ccdc_dev->hw_ops.get_pixel_format();
-	frm_fmt = ccdc_dev->hw_ops.get_frame_format();
-	if (frm_fmt == CCDC_FRMFMT_PROGRESSIVE)
-		f->fmt.pix.field = V4L2_FIELD_NONE;
-	else if (frm_fmt == CCDC_FRMFMT_INTERLACED) {
-		if (buf_type == CCDC_BUFTYPE_FLD_INTERLEAVED)
-			f->fmt.pix.field = V4L2_FIELD_INTERLACED;
-		else if (buf_type == CCDC_BUFTYPE_FLD_SEPARATED)
-			f->fmt.pix.field = V4L2_FIELD_SEQ_TB;
-		else {
-			v4l2_err(&vpfe_dev->v4l2_dev, "Invalid buf_type\n");
-			return -EINVAL;
-		}
-	} else {
-		v4l2_err(&vpfe_dev->v4l2_dev, "Invalid frm_fmt\n");
-		return -EINVAL;
-	}
-	return 0;
-}
 
 /*
  * vpfe_config_ccdc_image_format()
@@ -769,7 +730,7 @@ static int vpfe_mmap(struct file *file, struct vm_area_struct *vma)
 /*
  * vpfe_poll: It is used for select/poll system call
  */
-static unsigned int vpfe_poll(struct file *file, poll_table *wait)
+static __poll_t vpfe_poll(struct file *file, poll_table *wait)
 {
 	struct vpfe_device *vpfe_dev = video_drvdata(file);
 
@@ -1327,7 +1288,7 @@ static void vpfe_videobuf_release(struct videobuf_queue *vq,
 	vb->state = VIDEOBUF_NEEDS_INIT;
 }
 
-static struct videobuf_queue_ops vpfe_videobuf_qops = {
+static const struct videobuf_queue_ops vpfe_videobuf_qops = {
 	.buf_setup      = vpfe_videobuf_setup,
 	.buf_prepare    = vpfe_videobuf_prepare,
 	.buf_queue      = vpfe_videobuf_queue,
@@ -1697,59 +1658,6 @@ unlock_out:
 	return ret;
 }
 
-
-static long vpfe_param_handler(struct file *file, void *priv,
-		bool valid_prio, unsigned int cmd, void *param)
-{
-	struct vpfe_device *vpfe_dev = video_drvdata(file);
-	int ret;
-
-	v4l2_dbg(2, debug, &vpfe_dev->v4l2_dev, "vpfe_param_handler\n");
-
-	if (vpfe_dev->started) {
-		/* only allowed if streaming is not started */
-		v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev,
-			"device already started\n");
-		return -EBUSY;
-	}
-
-	ret = mutex_lock_interruptible(&vpfe_dev->lock);
-	if (ret)
-		return ret;
-
-	switch (cmd) {
-	case VPFE_CMD_S_CCDC_RAW_PARAMS:
-		v4l2_warn(&vpfe_dev->v4l2_dev,
-			  "VPFE_CMD_S_CCDC_RAW_PARAMS: experimental ioctl\n");
-		if (ccdc_dev->hw_ops.set_params) {
-			ret = ccdc_dev->hw_ops.set_params(param);
-			if (ret) {
-				v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev,
-					"Error setting parameters in CCDC\n");
-				goto unlock_out;
-			}
-			ret = vpfe_get_ccdc_image_format(vpfe_dev,
-							 &vpfe_dev->fmt);
-			if (ret < 0) {
-				v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev,
-					"Invalid image format at CCDC\n");
-				goto unlock_out;
-			}
-		} else {
-			ret = -EINVAL;
-			v4l2_dbg(1, debug, &vpfe_dev->v4l2_dev,
-				"VPFE_CMD_S_CCDC_RAW_PARAMS not supported\n");
-		}
-		break;
-	default:
-		ret = -ENOTTY;
-	}
-unlock_out:
-	mutex_unlock(&vpfe_dev->lock);
-	return ret;
-}
-
-
 /* vpfe capture ioctl operations */
 static const struct v4l2_ioctl_ops vpfe_ioctl_ops = {
 	.vidioc_querycap	 = vpfe_querycap,
@@ -1772,7 +1680,6 @@ static const struct v4l2_ioctl_ops vpfe_ioctl_ops = {
 	.vidioc_cropcap		 = vpfe_cropcap,
 	.vidioc_g_selection	 = vpfe_g_selection,
 	.vidioc_s_selection	 = vpfe_s_selection,
-	.vidioc_default		 = vpfe_param_handler,
 };
 
 static struct vpfe_device *vpfe_initialize(void)
@@ -1887,7 +1794,7 @@ static int vpfe_probe(struct platform_device *pdev)
 	vfd->fops		= &vpfe_fops;
 	vfd->ioctl_ops		= &vpfe_ioctl_ops;
 	vfd->tvnorms		= 0;
-	vfd->v4l2_dev 		= &vpfe_dev->v4l2_dev;
+	vfd->v4l2_dev		= &vpfe_dev->v4l2_dev;
 	snprintf(vfd->name, sizeof(vfd->name),
 		 "%s_V%d.%d.%d",
 		 CAPTURE_DRV_NAME,

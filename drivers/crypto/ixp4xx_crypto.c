@@ -260,12 +260,11 @@ static int setup_crypt_desc(void)
 {
 	struct device *dev = &pdev->dev;
 	BUILD_BUG_ON(sizeof(struct crypt_ctl) != 64);
-	crypt_virt = dma_alloc_coherent(dev,
-			NPE_QLEN * sizeof(struct crypt_ctl),
-			&crypt_phys, GFP_ATOMIC);
+	crypt_virt = dma_zalloc_coherent(dev,
+					 NPE_QLEN * sizeof(struct crypt_ctl),
+					 &crypt_phys, GFP_ATOMIC);
 	if (!crypt_virt)
 		return -ENOMEM;
-	memset(crypt_virt, 0, NPE_QLEN * sizeof(struct crypt_ctl));
 	return 0;
 }
 
@@ -534,7 +533,6 @@ static void release_ixp_crypto(struct device *dev)
 			NPE_QLEN_TOTAL * sizeof( struct crypt_ctl),
 			crypt_virt, crypt_phys);
 	}
-	return;
 }
 
 static void reset_sa_dir(struct ix_sa_dir *dir)
@@ -1073,7 +1071,7 @@ static int aead_perform(struct aead_request *req, int encrypt,
 		req_ctx->hmac_virt = dma_pool_alloc(buffer_pool, flags,
 				&crypt->icv_rev_aes);
 		if (unlikely(!req_ctx->hmac_virt))
-			goto free_buf_src;
+			goto free_buf_dst;
 		if (!encrypt) {
 			scatterwalk_map_and_copy(req_ctx->hmac_virt,
 				req->src, cryptlen, authsize, 0);
@@ -1088,10 +1086,10 @@ static int aead_perform(struct aead_request *req, int encrypt,
 	BUG_ON(qmgr_stat_overflow(SEND_QID));
 	return -EINPROGRESS;
 
-free_buf_src:
-	free_buf_chain(dev, req_ctx->src, crypt->src_buf);
 free_buf_dst:
 	free_buf_chain(dev, req_ctx->dst, crypt->dst_buf);
+free_buf_src:
+	free_buf_chain(dev, req_ctx->src, crypt->src_buf);
 	crypt->ctl_flags = CTL_FLAG_UNUSED;
 	return -ENOMEM;
 }

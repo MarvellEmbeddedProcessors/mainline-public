@@ -158,7 +158,7 @@ static int read_symbol(FILE *in, struct sym_entry *s)
 	else if (str[0] == '$')
 		return -1;
 	/* exclude debugging symbols */
-	else if (stype == 'N')
+	else if (stype == 'N' || stype == 'n')
 		return -1;
 
 	/* include the type field in the symbol name, so that it gets
@@ -595,7 +595,7 @@ static void optimize_result(void)
 		 * original char code */
 		if (!best_table_len[i]) {
 
-			/* find the token with the breates profit value */
+			/* find the token with the best profit value */
 			best = find_best_token();
 			if (token_profit[best] == 0)
 				break;

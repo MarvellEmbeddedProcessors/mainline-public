@@ -1,3 +1,4 @@
+/* SPDX-License-Identifier: GPL-2.0 */
 #ifndef _ALPHA_CMPXCHG_H
 #define _ALPHA_CMPXCHG_H
 
@@ -5,7 +6,6 @@
  * Atomic exchange routines.
  */
 
-#define __ASM__MB
 #define ____xchg(type, args...)		__xchg ## type ## _local(args)
 #define ____cmpxchg(type, args...)	__cmpxchg ## type ## _local(args)
 #include <asm/xchg.h>
@@ -32,10 +32,6 @@
 	cmpxchg_local((ptr), (o), (n));					\
 })
 
-#ifdef CONFIG_SMP
-#undef __ASM__MB
-#define __ASM__MB	"\tmb\n"
-#endif
 #undef ____xchg
 #undef ____cmpxchg
 #define ____xchg(type, args...)		__xchg ##type(args)
@@ -63,7 +59,6 @@
 	cmpxchg((ptr), (o), (n));					\
 })
 
-#undef __ASM__MB
 #undef ____cmpxchg
 
 #endif /* _ALPHA_CMPXCHG_H */

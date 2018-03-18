@@ -36,7 +36,6 @@
 #include <media/i2c/saa7115.h>
 #include <dt-bindings/media/tvp5150.h>
 #include <media/i2c/tvaudio.h>
-#include <media/i2c-addr.h>
 #include <media/tveeprom.h>
 #include <media/v4l2-common.h>
 #include <sound/ac97_codec.h>
@@ -1181,6 +1180,22 @@ struct em28xx_board em28xx_boards[] = {
 	[EM2884_BOARD_TERRATEC_H5] = {
 		.name         = "Terratec Cinergy H5",
 		.has_dvb      = 1,
+#if 0
+		.tuner_type   = TUNER_PHILIPS_TDA8290,
+		.tuner_addr   = 0x41,
+		.dvb_gpio     = terratec_h5_digital, /* FIXME: probably wrong */
+		.tuner_gpio   = terratec_h5_gpio,
+#else
+		.tuner_type   = TUNER_ABSENT,
+#endif
+		.def_i2c_bus  = 1,
+		.i2c_speed    = EM28XX_I2C_CLK_WAIT_ENABLE |
+				EM28XX_I2C_FREQ_400_KHZ,
+	},
+	[EM2884_BOARD_TERRATEC_H6] = {
+		.name         = "Terratec Cinergy H6 rev. 2",
+		.has_dvb      = 1,
+		.ir_codes     = RC_MAP_NEC_TERRATEC_CINERGY_XS,
 #if 0
 		.tuner_type   = TUNER_PHILIPS_TDA8290,
 		.tuner_addr   = 0x41,
@@ -2496,6 +2511,8 @@ struct usb_device_id em28xx_id_table[] = {
 			.driver_info = EM2884_BOARD_TERRATEC_H5 },
 	{ USB_DEVICE(0x0ccd, 0x10b6),	/* H5 Rev. 3 */
 			.driver_info = EM2884_BOARD_TERRATEC_H5 },
+	{ USB_DEVICE(0x0ccd, 0x10b2),	/* H6 */
+			.driver_info = EM2884_BOARD_TERRATEC_H6 },
 	{ USB_DEVICE(0x0ccd, 0x0084),
 			.driver_info = EM2860_BOARD_TERRATEC_AV350 },
 	{ USB_DEVICE(0x0ccd, 0x0096),

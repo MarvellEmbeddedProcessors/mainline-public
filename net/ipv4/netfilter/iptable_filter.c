@@ -38,12 +38,6 @@ static unsigned int
 iptable_filter_hook(void *priv, struct sk_buff *skb,
 		    const struct nf_hook_state *state)
 {
-	if (state->hook == NF_INET_LOCAL_OUT &&
-	    (skb->len < sizeof(struct iphdr) ||
-	     ip_hdrlen(skb) < sizeof(struct iphdr)))
-		/* root is playing with raw sockets. */
-		return NF_ACCEPT;
-
 	return ipt_do_table(skb, state, state->net->ipv4.iptable_filter);
 }
 
@@ -93,6 +87,7 @@ static void __net_exit iptable_filter_net_exit(struct net *net)
 static struct pernet_operations iptable_filter_net_ops = {
 	.init = iptable_filter_net_init,
 	.exit = iptable_filter_net_exit,
+	.async = true,
 };
 
 static int __init iptable_filter_init(void)

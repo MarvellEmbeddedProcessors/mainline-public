@@ -364,7 +364,7 @@ static int gtp_dev_init(struct net_device *dev)
 
 	gtp->dev = dev;
 
-	dev->tstats = alloc_percpu(struct pcpu_sw_netstats);
+	dev->tstats = netdev_alloc_pcpu_stats(struct pcpu_sw_netstats);
 	if (!dev->tstats)
 		return -ENOMEM;
 
@@ -1325,6 +1325,7 @@ static struct pernet_operations gtp_net_ops = {
 	.exit	= gtp_net_exit,
 	.id	= &gtp_net_id,
 	.size	= sizeof(struct gtp_net),
+	.async	= true,
 };
 
 static int __init gtp_init(void)

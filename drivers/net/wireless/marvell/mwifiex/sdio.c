@@ -390,7 +390,8 @@ mwifiex_sdio_remove(struct sdio_func *func)
 	mwifiex_dbg(adapter, INFO, "info: SDIO func num=%d\n", func->num);
 
 	ret = mwifiex_sdio_read_fw_status(adapter, &firmware_stat);
-	if (firmware_stat == FIRMWARE_READY_SDIO && !adapter->mfg_mode) {
+	if (!ret && firmware_stat == FIRMWARE_READY_SDIO &&
+	    !adapter->mfg_mode) {
 		mwifiex_deauthenticate_all(adapter);
 
 		priv = mwifiex_get_priv(adapter, MWIFIEX_BSS_ROLE_ANY);
@@ -2504,15 +2505,21 @@ done:
 static void mwifiex_sdio_device_dump_work(struct mwifiex_adapter *adapter)
 {
 	struct sdio_mmc_card *card = adapter->card;
-	int drv_info_size;
-	void *drv_info;
 
-	drv_info_size = mwifiex_drv_info_dump(adapter, &drv_info);
+	adapter->devdump_data = vzalloc(MWIFIEX_FW_DUMP_SIZE);
+	if (!adapter->devdump_data) {
+		mwifiex_dbg(adapter, ERROR,
+			    "vzalloc devdump data failure!\n");
+		return;
+	}
+
+	mwifiex_drv_info_dump(adapter);
 	if (card->fw_dump_enh)
 		mwifiex_sdio_generic_fw_dump(adapter);
 	else
 		mwifiex_sdio_fw_dump(adapter);
-	mwifiex_upload_device_dump(adapter, drv_info, drv_info_size);
+	mwifiex_prepare_fw_dump_info(adapter);
+	mwifiex_upload_device_dump(adapter);
 }
 
 static void mwifiex_sdio_work(struct work_struct *work)
