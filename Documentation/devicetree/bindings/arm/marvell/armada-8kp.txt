@@ -6,10 +6,8 @@ the following root node property:
 
  - compatible, with one of the following values:
 
-   - "marvell,armada-8080", "marvell,armada-ap810-octa", "marvell,armada-ap810"
-     when the SoC being used is the Armada 8080
+   - "marvell,armada-ap810-octa", "marvell,armada-ap810"
 
 Example:
 
-compatible = "marvell,armada-8080-db", "marvell,armada-8080",
-	     "marvell,armada-ap810-octa", "marvell,armada-ap810"
+compatible = "marvell,armada-ap810-octa", "marvell,armada-ap810"
