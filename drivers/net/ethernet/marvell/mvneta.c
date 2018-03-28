@@ -3397,7 +3397,8 @@ static void mvneta_set_eee(struct mvneta_port *pp, bool enable)
 	mvreg_write(pp, MVNETA_LPI_CTRL_1, lpi_ctl1);
 }
 
-static void mvneta_mac_link_down(struct net_device *ndev, unsigned int mode)
+static void mvneta_mac_link_down(struct net_device *ndev, unsigned int mode,
+				 phy_interface_t interface)
 {
 	struct mvneta_port *pp = netdev_priv(ndev);
 	u32 val;
@@ -3416,6 +3417,7 @@ static void mvneta_mac_link_down(struct net_device *ndev, unsigned int mode)
 }
 
 static void mvneta_mac_link_up(struct net_device *ndev, unsigned int mode,
+			       phy_interface_t interface,
 			       struct phy_device *phy)
 {
 	struct mvneta_port *pp = netdev_priv(ndev);
