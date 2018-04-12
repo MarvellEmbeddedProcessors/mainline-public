@@ -7,6 +7,9 @@
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
 
+#define CPU_NUM(x)	EVALUATOR(AP810_ID, x)
+#define CPU_NUM_REG(x)	ADDRESSIFY(CPU_NUM(x))
+
 /dts-v1/;
 
 / {
@@ -24,53 +27,61 @@
 		#address-cells = <1>;
 		#size-cells = <0>;
 
-		cpu@0 {
+		cpu@CPU_NUM(0000) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x000>;
+			reg = <CPU_NUM_REG(0000)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@1 {
+		cpu@CPU_NUM(0001) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x001>;
+			reg = <CPU_NUM_REG(0001)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@100 {
+		cpu@CPU_NUM(0100) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x100>;
+			reg = <CPU_NUM_REG(0100)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@101 {
+		cpu@CPU_NUM(0101) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x101>;
+			reg = <CPU_NUM_REG(0101)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@200 {
+		cpu@CPU_NUM(0200) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x200>;
+			reg = <CPU_NUM_REG(0200)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@201 {
+		cpu@CPU_NUM(0201) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x201>;
+			reg = <CPU_NUM_REG(0201)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@300 {
+		cpu@CPU_NUM(0300) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x300>;
+			reg = <CPU_NUM_REG(0300)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
-		cpu@301 {
+		cpu@CPU_NUM(0301) {
 			device_type = "cpu";
 			compatible = "arm,cortex-a72", "arm,armv8";
-			reg = <0x301>;
+			reg = <CPU_NUM_REG(0301)>;
 			enable-method = "psci";
+			numa-node-id = <AP810_ID>;
 		};
 	};
 
