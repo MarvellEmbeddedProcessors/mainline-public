@@ -99,11 +99,11 @@
 		interrupt-parent = <&gic>;
 		ranges;
 
-		config-space@e8000000 {
+		config-space@AP810_BASE {
 			#address-cells = <1>;
 			#size-cells = <1>;
 			compatible = "simple-bus";
-			ranges = <0x0 0x0 0xe8000000 0x4000000>;
+			ranges = <0x0 0x0 ADDRESSIFY(AP810_BASE) 0x4000000>;
 			interrupt-parent = <&gic>;
 
 			gic: interrupt-controller@3000000 {
