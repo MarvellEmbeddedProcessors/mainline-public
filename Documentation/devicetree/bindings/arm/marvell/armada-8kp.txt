@@ -6,8 +6,8 @@ the following root node property:
 
  - compatible, with one of the following values:
 
-   - "marvell,armada-ap810-octa", "marvell,armada-ap810"
+   - "marvell,armada-ap810"
 
 Example:
 
-compatible = "marvell,armada-ap810-octa", "marvell,armada-ap810"
+compatible = "marvell,armada-ap810"
