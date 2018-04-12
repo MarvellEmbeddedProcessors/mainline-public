@@ -10,6 +10,8 @@
 #define CPU_NUM(x)	EVALUATOR(AP810_ID, x)
 #define CPU_NUM_REG(x)	ADDRESSIFY(CPU_NUM(x))
 
+#define AP810_ITS_AP_XOR_STREAM_ID(x)	(0x200 * AP810_ID + 0x100 + (x))
+
 /dts-v1/;
 
 / {
@@ -90,7 +92,7 @@
 		method = "smc";
 	};
 
-	ap810-ap0 {
+	AP810_NAME {
 		#address-cells = <2>;
 		#size-cells = <2>;
 		compatible = "simple-bus";
@@ -119,7 +121,7 @@
 				      <0x00d0000 0x1000>,	/* GICH */
 				      <0x00e0000 0x2000>;	/* GICV */
 
-				ap0_gic_its: interrupt-controller@3040000 {
+				AP810_LABEL(gic_its): interrupt-controller@3040000 {
 					compatible = "arm,gic-v3-its";
 					msi-controller;
 					#msi-cells = <1>;
@@ -139,7 +141,7 @@
 				compatible = "marvell,armada-7k-xor", "marvell,xor-v2";
 				reg = <0x400000 0x1000>,
 				      <0x410000 0x1000>;
-				msi-parent = <&ap0_gic_its 0xa0>;
+				msi-parent = <&AP810_LABEL(gic_its) AP810_ITS_AP_XOR_STREAM_ID(0)>;
 				dma-coherent;
 			};
 
@@ -147,7 +149,7 @@
 				compatible = "marvell,armada-7k-xor", "marvell,xor-v2";
 				reg = <0x420000 0x1000>,
 				      <0x430000 0x1000>;
-				msi-parent = <&ap0_gic_its 0xa1>;
+				msi-parent = <&AP810_LABEL(gic_its) AP810_ITS_AP_XOR_STREAM_ID(1)>;
 				dma-coherent;
 			};
 
@@ -155,7 +157,7 @@
 				compatible = "marvell,armada-7k-xor", "marvell,xor-v2";
 				reg = <0x440000 0x1000>,
 				      <0x450000 0x1000>;
-				msi-parent = <&ap0_gic_its 0xa2>;
+				msi-parent = <&AP810_LABEL(gic_its) AP810_ITS_AP_XOR_STREAM_ID(2)>;
 				dma-coherent;
 			};
 
@@ -163,11 +165,11 @@
 				compatible = "marvell,armada-7k-xor", "marvell,xor-v2";
 				reg = <0x460000 0x1000>,
 				      <0x470000 0x1000>;
-				msi-parent = <&ap0_gic_its 0xa3>;
+				msi-parent = <&AP810_LABEL(gic_its) AP810_ITS_AP_XOR_STREAM_ID(3)>;
 				dma-coherent;
 			};
 
-			ap0_uart0: serial@512000 {
+			AP810_LABEL(uart0): serial@512000 {
 				compatible = "snps,dw-apb-uart";
 				reg = <0x512000 0x100>;
 				reg-shift = <2>;
@@ -176,7 +178,7 @@
 				status = "disabled";
 			};
 
-			ap0_uart1: serial@512100 {
+			AP810_LABEL(uart1): serial@512100 {
 				compatible = "snps,dw-apb-uart";
 				reg = <0x512100 0x100>;
 				reg-shift = <2>;
