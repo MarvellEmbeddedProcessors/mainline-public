@@ -17,6 +17,11 @@
 };
 
 /*
+ * Common definitions to both CPs
+ */
+#define CP110_ICU_MSI_PARENT	<&gicp>
+
+/*
  * Instantiate the master CP110
  */
 #define CP110_NAME		cp0
