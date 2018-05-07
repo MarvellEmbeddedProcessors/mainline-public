@@ -20,6 +20,7 @@
  * Common definitions to both CPs
  */
 #define CP110_ICU_MSI_PARENT	<&gicp>
+#define CP110_XOR_MSI_PARENT(x)	<&gic_v2m0>
 
 /*
  * Instantiate the master CP110
