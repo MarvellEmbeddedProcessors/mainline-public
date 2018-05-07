@@ -19,6 +19,8 @@
  *                                 <&label>
  *  - CP110_XOR_MSI_PARENT(n):     the MSI-capable parent interrupt
  *                                 controller used by the n-th XOR engine.
+ *  - CP110_PCIE_MSI_PARENT(n):    the MSI-capable parent interrupt
+ *                                 controller used by the n-th PCIE controller.
  */
 
 #include <dt-bindings/interrupt-controller/mvebu-icu.h>
@@ -441,7 +443,7 @@
 		#interrupt-cells = <1>;
 		device_type = "pci";
 		dma-coherent;
-		msi-parent = <&gic_v2m0>;
+		msi-parent = CP110_PCIE_MSI_PARENT(0);
 
 		bus-range = <0 0xff>;
 		ranges =
@@ -468,7 +470,7 @@
 		#interrupt-cells = <1>;
 		device_type = "pci";
 		dma-coherent;
-		msi-parent = <&gic_v2m0>;
+		msi-parent = CP110_PCIE_MSI_PARENT(1);
 
 		bus-range = <0 0xff>;
 		ranges =
@@ -496,7 +498,7 @@
 		#interrupt-cells = <1>;
 		device_type = "pci";
 		dma-coherent;
-		msi-parent = <&gic_v2m0>;
+		msi-parent = CP110_PCIE_MSI_PARENT(2);
 
 		bus-range = <0 0xff>;
 		ranges =

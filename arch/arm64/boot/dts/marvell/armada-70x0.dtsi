@@ -26,6 +26,7 @@
 #define CP110_PCIE2_BASE	f2640000
 #define CP110_ICU_MSI_PARENT	<&gicp>
 #define CP110_XOR_MSI_PARENT(x)	<&gic_v2m0>
+#define CP110_PCIE_MSI_PARENT(x)	<&gic_v2m0>
 
 #include "armada-cp110.dtsi"
 
