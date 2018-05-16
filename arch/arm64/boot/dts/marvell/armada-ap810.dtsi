@@ -3,6 +3,15 @@
  * Copyright (C) 2017 Marvell Technology Group Ltd.
  *
  * Device Tree file for Marvell Armada AP810.
+ *
+ * To include this file, the following definitions must exist:
+ *  - AP810_ID:       number of the AP
+ *  - AP810_NAME:     provided by armada-common.dtsi based on AP810_ID
+ *  - AP810_LABEL:    provided by armada-common.dtsi based on AP810_ID
+ *  - AP810_BASE:     base address of registers for this AP
+ *                    (without leading 0x)
+ *  - AP810_ITS_BASE: base address of the ITS for this AP
+ *                    (without leading 0x)
  */
 
 #include <dt-bindings/interrupt-controller/arm-gic.h>
