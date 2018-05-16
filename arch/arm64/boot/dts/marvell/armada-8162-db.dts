@@ -1,0 +1,28 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (C) 2018 Marvell Technology Group Ltd.
+ *
+ * Device Tree file for Marvell Armada-8162 Development board platform
+ */
+
+#include "armada-8162.dtsi"
+
+/ {
+	model = "Marvell Armada 8162 DB board";
+	compatible = "marvell,armada-8162-db", "marvell,armada-8162",
+		"marvell,armada-ap810";
+
+	chosen {
+		stdout-path = "serial0:115200n8";
+	};
+
+	memory0@ap0 {
+		device_type = "memory";
+		reg = <0x0 0x0 0x0 0x80000000>;
+	};
+};
+
+&ap0_uart0 {
+	clock-frequency = <200000000>;
+	status = "okay";
+};
