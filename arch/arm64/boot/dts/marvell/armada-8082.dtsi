@@ -1,0 +1,64 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (C) 2018 Marvell Technology Group Ltd.
+ *
+ * Device Tree file for Marvell Armada-8082 SoC, made of one AP810 and
+ * two CP110.
+ */
+
+/dts-v1/;
+
+#include "armada-8kp.dtsi"
+
+/* AP0 */
+#define AP810_ID	0
+#define AP810_BASE	e8000000
+#define AP810_ITS_BASE	eb040000
+
+#include "armada-ap810.dtsi"
+
+/* CP0 in AP0 */
+#define CP110_NAME		ap0_cp0
+#define CP110_BASE		8100000000
+#define CP110_PCIE0_BASE	8100600000
+#define CP110_PCIE1_BASE	8100620000
+#define CP110_PCIE2_BASE	8100640000
+
+#include "armada-cp110.dtsi"
+
+#undef CP110_PCIE2_BASE
+#undef CP110_PCIE1_BASE
+#undef CP110_PCIE0_BASE
+#undef CP110_BASE
+#undef CP110_NAME
+
+/* CP1 in AP0 */
+#define CP110_NAME		ap0_cp1
+#define CP110_BASE		8800000000
+#define CP110_PCIE0_BASE	8800600000
+#define CP110_PCIE1_BASE	8800620000
+#define CP110_PCIE2_BASE	8800640000
+
+#include "armada-cp110.dtsi"
+
+#undef CP110_PCIE2_BASE
+#undef CP110_PCIE1_BASE
+#undef CP110_PCIE0_BASE
+#undef CP110_BASE
+#undef CP110_NAME
+
+#undef AP810_ITS_BASE
+#undef AP810_BASE
+#undef AP810_ID
+
+&ap0_cp0_syscon0 {
+	ap0_cp0_pinctrl: pinctrl {
+		compatible = "marvell,armada-8k-cpm-pinctrl"; /* FIXME */
+	};
+};
+
+&ap0_cp1_syscon0 {
+	ap0_cp1_pinctrl: pinctrl {
+		compatible = "marvell,armada-8k-cpm-pinctrl"; /* FIXME */
+	};
+};
