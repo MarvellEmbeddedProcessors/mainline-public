@@ -3,6 +3,17 @@
  * Copyright (C) 2016 Marvell Technology Group Ltd.
  *
  * Device Tree file for Marvell Armada CP110.
+ *
+ * To include this file, the following definitions must exist:
+ *  - CP110_NAME:                  name of the CP110
+ *  - CP110_LABEL:                 provided by armada-common.dtsi,
+ *                                 based on CP110_NAME
+ *  - CP110_BASE:                  base address of registers for this CP
+ *                                 (without leading 0x)
+ *  - CP110_PCIE_IO_BASE:          base address of IO mapping for PCIe
+ *  - CP110_PCIE_MEM_BASE:         base address of MEM mapping for PCIe
+ *  - CP110_PCIE{0,1,2}_BASE:      base address of PCIe controller for this
+ *                                 CP (without leading 0x)
  */
 
 #include <dt-bindings/interrupt-controller/mvebu-icu.h>
