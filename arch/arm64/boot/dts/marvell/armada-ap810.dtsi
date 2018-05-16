@@ -12,8 +12,6 @@
 
 #define AP810_ITS_AP_XOR_STREAM_ID(x)	(0x200 * AP810_ID + 0x100 + (x))
 
-/dts-v1/;
-
 / {
 	model = "Marvell Armada AP810";
 	compatible = "marvell,armada-ap810";
