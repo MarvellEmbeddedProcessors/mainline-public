@@ -31,6 +31,11 @@
 #define CP110_PCIEx_MEM_BASE(iface)	(CP110_PCIE_MEM_BASE + (iface *  0x1000000))
 #define CP110_PCIEx_CONF_BASE(iface)	(CP110_PCIEx_MEM_BASE(iface) + 0xf00000)
 
+#define CP110_BASE_ADDR			ADDRESSIFY(CP110_BASE)
+#define CP110_PCIE0_BASE_ADDR		ADDRESSIFY(CP110_PCIE0_BASE)
+#define CP110_PCIE1_BASE_ADDR		ADDRESSIFY(CP110_PCIE1_BASE)
+#define CP110_PCIE2_BASE_ADDR		ADDRESSIFY(CP110_PCIE2_BASE)
+
 / {
 	/*
 	 * The contents of the node are defined below, in order to
@@ -50,7 +55,7 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "simple-bus";
-		ranges = <0x0 0x0 ADDRESSIFY(CP110_BASE) 0x2000000>;
+		ranges = <0x0 0x0 CP110_BASE_ADDR 0x2000000>;
 
 		CP110_LABEL(ethernet): ethernet@0 {
 			compatible = "marvell,armada-7k-pp22";
@@ -435,7 +440,7 @@
 
 	CP110_LABEL(pcie0): pcie@CP110_PCIE0_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 ADDRESSIFY(CP110_PCIE0_BASE) 0 0x10000>,
+		reg = <0 CP110_PCIE0_BASE_ADDR 0 0x10000>,
 		      <0 CP110_PCIEx_CONF_BASE(0) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
@@ -462,7 +467,7 @@
 
 	CP110_LABEL(pcie1): pcie@CP110_PCIE1_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 ADDRESSIFY(CP110_PCIE1_BASE) 0 0x10000>,
+		reg = <0 CP110_PCIE1_BASE_ADDR 0 0x10000>,
 		      <0 CP110_PCIEx_CONF_BASE(1) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
@@ -490,7 +495,7 @@
 
 	CP110_LABEL(pcie2): pcie@CP110_PCIE2_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 ADDRESSIFY(CP110_PCIE2_BASE) 0 0x10000>,
+		reg = <0 CP110_PCIE2_BASE_ADDR 0 0x10000>,
 		      <0 CP110_PCIEx_CONF_BASE(2) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
