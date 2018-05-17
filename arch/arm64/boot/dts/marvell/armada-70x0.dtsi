@@ -27,6 +27,13 @@
 #define CP110_ICU_MSI_PARENT	<&gicp>
 #define CP110_XOR_MSI_PARENT(x)	<&gic_v2m0>
 #define CP110_PCIE_MSI_PARENT(x)	<&gic_v2m0>
+#define CP110_PCIEx_CPU_IO_BASE(iface)	(CP110_PCIE_IO_BASE + (iface *  0x10000))
+#define CP110_PCIEx_CPU_MEM_BASE(iface)	(CP110_PCIE_MEM_BASE + (iface *  0x1000000))
+#define CP110_PCIEx_BUS_IO_BASE(iface)	(CP110_PCIEx_CPU_IO_BASE(iface))
+#define CP110_PCIEx_BUS_MEM_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface))
+#define CP110_PCIEx_CONF_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface) + 0xf00000)
+#define CP110_PCIE_MEM_CFG		(0x82000000)
+#define CP110_PCIE_MEM_SIZE		(0xf00000)
 
 #include "armada-cp110.dtsi"
 
