@@ -10,3 +10,6 @@
 #define AP810_NAME EVALUATOR(ap, AP810_ID)
 #define AP810_LABEL(name) EVALUATOR(AP810_NAME, EVALUATOR(_, name))
 #define ADDRESSIFY(addr) EVALUATOR(0x, addr)
+
+#define upper32(addr)	(((addr) >> 32) & 0xffffffff)
+#define lower32(addr)	((addr) & 0xffffffff)
