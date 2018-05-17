@@ -55,7 +55,7 @@
 		#address-cells = <1>;
 		#size-cells = <1>;
 		compatible = "simple-bus";
-		ranges = <0x0 0x0 CP110_BASE_ADDR 0x2000000>;
+		ranges = <0x0 upper32(CP110_BASE_ADDR) lower32(CP110_BASE_ADDR) 0x2000000>;
 
 		CP110_LABEL(ethernet): ethernet@0 {
 			compatible = "marvell,armada-7k-pp22";
@@ -440,8 +440,8 @@
 
 	CP110_LABEL(pcie0): pcie@CP110_PCIE0_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 CP110_PCIE0_BASE_ADDR 0 0x10000>,
-		      <0 CP110_PCIEx_CONF_BASE(0) 0 0x80000>;
+		reg = <upper32(CP110_PCIE0_BASE_ADDR)    lower32(CP110_PCIE0_BASE_ADDR)    0 0x10000>,
+		      <upper32(CP110_PCIEx_CONF_BASE(0)) lower32(CP110_PCIEx_CONF_BASE(0)) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
 		#size-cells = <2>;
@@ -453,9 +453,13 @@
 		bus-range = <0 0xff>;
 		ranges =
 		/* downstream I/O */
-		<0x81000000 0 CP110_PCIEx_IO_BASE(0) 0  CP110_PCIEx_IO_BASE(0) 0 0x10000
+		<0x81000000
+		upper32(CP110_PCIEx_IO_BASE(0)) lower32(CP110_PCIEx_IO_BASE(0))
+		upper32(CP110_PCIEx_IO_BASE(0)) lower32(CP110_PCIEx_IO_BASE(0)) 0 0x10000
 		/* non-prefetchable memory */
-		0x82000000 0 CP110_PCIEx_MEM_BASE(0) 0  CP110_PCIEx_MEM_BASE(0) 0 0xf00000>;
+		0x82000000
+		upper32(CP110_PCIEx_MEM_BASE(0)) lower32(CP110_PCIEx_MEM_BASE(0))
+		upper32(CP110_PCIEx_MEM_BASE(0)) lower32(CP110_PCIEx_MEM_BASE(0)) 0 0xf00000>;
 		interrupt-map-mask = <0 0 0 0>;
 		interrupt-map = <0 0 0 0 &CP110_LABEL(icu) ICU_GRP_NSR 22 IRQ_TYPE_LEVEL_HIGH>;
 		interrupts = <ICU_GRP_NSR 22 IRQ_TYPE_LEVEL_HIGH>;
@@ -467,8 +471,8 @@
 
 	CP110_LABEL(pcie1): pcie@CP110_PCIE1_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 CP110_PCIE1_BASE_ADDR 0 0x10000>,
-		      <0 CP110_PCIEx_CONF_BASE(1) 0 0x80000>;
+		reg = <upper32(CP110_PCIE1_BASE_ADDR)    lower32(CP110_PCIE1_BASE_ADDR)    0 0x10000>,
+		      <upper32(CP110_PCIEx_CONF_BASE(1)) lower32(CP110_PCIEx_CONF_BASE(1)) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
 		#size-cells = <2>;
@@ -480,9 +484,13 @@
 		bus-range = <0 0xff>;
 		ranges =
 		/* downstream I/O */
-		<0x81000000 0 CP110_PCIEx_IO_BASE(1) 0  CP110_PCIEx_IO_BASE(1) 0 0x10000
+		<0x81000000
+		upper32(CP110_PCIEx_IO_BASE(1)) lower32(CP110_PCIEx_IO_BASE(1))
+		upper32(CP110_PCIEx_IO_BASE(1)) lower32(CP110_PCIEx_IO_BASE(1)) 0 0x10000
 		/* non-prefetchable memory */
-		0x82000000 0 CP110_PCIEx_MEM_BASE(1) 0  CP110_PCIEx_MEM_BASE(1) 0 0xf00000>;
+		0x82000000
+		upper32(CP110_PCIEx_MEM_BASE(1)) lower32(CP110_PCIEx_MEM_BASE(1))
+		upper32(CP110_PCIEx_MEM_BASE(1)) lower32(CP110_PCIEx_MEM_BASE(1)) 0 0xf00000>;
 		interrupt-map-mask = <0 0 0 0>;
 		interrupt-map = <0 0 0 0 &CP110_LABEL(icu) ICU_GRP_NSR 24 IRQ_TYPE_LEVEL_HIGH>;
 		interrupts = <ICU_GRP_NSR 24 IRQ_TYPE_LEVEL_HIGH>;
@@ -495,8 +503,8 @@
 
 	CP110_LABEL(pcie2): pcie@CP110_PCIE2_BASE {
 		compatible = "marvell,armada8k-pcie", "snps,dw-pcie";
-		reg = <0 CP110_PCIE2_BASE_ADDR 0 0x10000>,
-		      <0 CP110_PCIEx_CONF_BASE(2) 0 0x80000>;
+		reg = <upper32(CP110_PCIE2_BASE_ADDR)    lower32(CP110_PCIE2_BASE_ADDR)    0 0x10000>,
+		      <upper32(CP110_PCIEx_CONF_BASE(2)) lower32(CP110_PCIEx_CONF_BASE(2)) 0 0x80000>;
 		reg-names = "ctrl", "config";
 		#address-cells = <3>;
 		#size-cells = <2>;
@@ -508,9 +516,13 @@
 		bus-range = <0 0xff>;
 		ranges =
 		/* downstream I/O */
-		<0x81000000 0 CP110_PCIEx_IO_BASE(2) 0  CP110_PCIEx_IO_BASE(2) 0 0x10000
+		<0x81000000
+		upper32(CP110_PCIEx_IO_BASE(2)) lower32(CP110_PCIEx_IO_BASE(2))
+		upper32(CP110_PCIEx_IO_BASE(2)) lower32(CP110_PCIEx_IO_BASE(2)) 0 0x10000
 		/* non-prefetchable memory */
-		0x82000000 0 CP110_PCIEx_MEM_BASE(2) 0  CP110_PCIEx_MEM_BASE(2) 0 0xf00000>;
+		0x82000000
+		upper32(CP110_PCIEx_MEM_BASE(2)) lower32(CP110_PCIEx_MEM_BASE(2))
+		upper32(CP110_PCIEx_MEM_BASE(2)) lower32(CP110_PCIEx_MEM_BASE(2)) 0 0xf00000>;
 		interrupt-map-mask = <0 0 0 0>;
 		interrupt-map = <0 0 0 0 &CP110_LABEL(icu) ICU_GRP_NSR 23 IRQ_TYPE_LEVEL_HIGH>;
 		interrupts = <ICU_GRP_NSR 23 IRQ_TYPE_LEVEL_HIGH>;
