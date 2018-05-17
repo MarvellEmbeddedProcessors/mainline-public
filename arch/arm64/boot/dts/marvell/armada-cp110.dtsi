@@ -10,10 +10,20 @@
  *                                 based on CP110_NAME
  *  - CP110_BASE:                  base address of registers for this CP
  *                                 (without leading 0x)
- *  - CP110_PCIE_IO_BASE:          base address of IO mapping for PCIe
- *  - CP110_PCIE_MEM_BASE:         base address of MEM mapping for PCIe
+ *  - CP110_PCIEx_CPU_IO_BASE(n):  CPU base address of IO mapping for the
+ *                                 n-th PCIe controller
+ *  - CP110_PCIEx_CPU_MEM_BASE(n): CPU base address of MEM mapping for the
+ *                                 n-th PCIe controller
+ *  - CP110_PCIEx_BUS_IO_BASE(n):  bus base address of IO mapping for the
+ *                                 n-th PCIe controller
+ *  - CP110_PCIEx_CPU_MEM_BASE(n): bus base address of MEM mapping for the
+ *                                 n-th PCIe controller
+ *  - CP110_PCIEx_CONF_BASE(n):    base address of the configuration space
+ *                                 for the n-th PCIe controller
  *  - CP110_PCIE{0,1,2}_BASE:      base address of PCIe controller for this
  *                                 CP (without leading 0x)
+ *  - CP110_PCIE_MEM_CFG:          PCIe region flags for the MEM areas
+ *  - CP110_PCIE_MEM_SIZE:         PCIe MEM area size
  *  - CP110_ICU_MSI_PARENT:        the parent interrupt controller of the
  *                                 CP110 ICU. It should have the form
  *                                 <&label>
@@ -26,14 +36,6 @@
 #include <dt-bindings/interrupt-controller/mvebu-icu.h>
 
 #include "armada-common.dtsi"
-
-#define CP110_PCIEx_CPU_IO_BASE(iface)	(CP110_PCIE_IO_BASE + (iface *  0x10000))
-#define CP110_PCIEx_CPU_MEM_BASE(iface)	(CP110_PCIE_MEM_BASE + (iface *  0x1000000))
-#define CP110_PCIEx_BUS_IO_BASE(iface)	(CP110_PCIEx_CPU_IO_BASE(iface))
-#define CP110_PCIEx_BUS_MEM_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface))
-#define CP110_PCIEx_CONF_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface) + 0xf00000)
-#define CP110_PCIE_MEM_CFG		(0x82000000)
-#define CP110_PCIE_MEM_SIZE		(0xf00000)
 
 #define CP110_BASE_ADDR			ADDRESSIFY(CP110_BASE)
 #define CP110_PCIE0_BASE_ADDR		ADDRESSIFY(CP110_PCIE0_BASE)
