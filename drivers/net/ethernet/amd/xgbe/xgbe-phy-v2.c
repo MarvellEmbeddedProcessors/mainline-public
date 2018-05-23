@@ -982,6 +982,9 @@ static int xgbe_phy_find_phy_device(struct xgbe_prv_data *pdata)
 	if (phy_data->phydev)
 		return 0;
 
+	/* Clear the extra AN flag */
+	pdata->an_again = 0;
+
 	/* Check for the use of an external PHY */
 	if (phy_data->phydev_mode == XGBE_MDIO_MODE_NONE)
 		return 0;
