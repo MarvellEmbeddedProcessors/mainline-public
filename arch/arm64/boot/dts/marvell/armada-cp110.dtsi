@@ -77,9 +77,14 @@
 					     <47 IRQ_TYPE_LEVEL_HIGH>,
 					     <51 IRQ_TYPE_LEVEL_HIGH>,
 					     <55 IRQ_TYPE_LEVEL_HIGH>,
+					     <59 IRQ_TYPE_LEVEL_HIGH>,
+					     <63 IRQ_TYPE_LEVEL_HIGH>,
+					     <67 IRQ_TYPE_LEVEL_HIGH>,
+					     <71 IRQ_TYPE_LEVEL_HIGH>,
 					     <129 IRQ_TYPE_LEVEL_HIGH>;
 				interrupt-names = "hif0", "hif1", "hif2",
-					"hif3", "link";
+					"hif3", "hif4", "hif5", "hif6", "hif7",
+					"hif8", "link";
 				port-id = <0>;
 				gop-port-id = <0>;
 				status = "disabled";
@@ -91,9 +96,14 @@
 					     <48 IRQ_TYPE_LEVEL_HIGH>,
 					     <52 IRQ_TYPE_LEVEL_HIGH>,
 					     <56 IRQ_TYPE_LEVEL_HIGH>,
+					     <60 IRQ_TYPE_LEVEL_HIGH>,
+					     <64 IRQ_TYPE_LEVEL_HIGH>,
+					     <68 IRQ_TYPE_LEVEL_HIGH>,
+					     <72 IRQ_TYPE_LEVEL_HIGH>,
 					     <128 IRQ_TYPE_LEVEL_HIGH>;
 				interrupt-names = "hif0", "hif1", "hif2",
-					"hif3", "link";
+					"hif3", "hif4", "hif5", "hif6", "hif7",
+					"hif8", "link";
 				port-id = <1>;
 				gop-port-id = <2>;
 				status = "disabled";
@@ -105,9 +115,14 @@
 					     <49 IRQ_TYPE_LEVEL_HIGH>,
 					     <53 IRQ_TYPE_LEVEL_HIGH>,
 					     <57 IRQ_TYPE_LEVEL_HIGH>,
+					     <61 IRQ_TYPE_LEVEL_HIGH>,
+					     <65 IRQ_TYPE_LEVEL_HIGH>,
+					     <69 IRQ_TYPE_LEVEL_HIGH>,
+					     <73 IRQ_TYPE_LEVEL_HIGH>,
 					     <127 IRQ_TYPE_LEVEL_HIGH>;
 				interrupt-names = "hif0", "hif1", "hif2",
-					"hif3", "link";
+					"hif3", "hif4", "hif5", "hif6", "hif7",
+					"hif8", "link";
 				port-id = <2>;
 				gop-port-id = <3>;
 				status = "disabled";
