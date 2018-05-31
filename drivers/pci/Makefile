@@ -53,14 +53,9 @@ obj-$(CONFIG_PCI_ECAM) += ecam.o
 
 obj-$(CONFIG_XEN_PCIDEV_FRONTEND) += xen-pcifront.o
 
-ccflags-$(CONFIG_PCI_DEBUG) := -DDEBUG
-
-# PCI host controller drivers
-obj-y += host/
-obj-y += switch/
+obj-y				+= controller/
+obj-y				+= switch/
 
 obj-$(CONFIG_PCI_ENDPOINT)	+= endpoint/
 
-# Endpoint library must be initialized before its users
-# pcie-hisi.o quirks are needed even without CONFIG_PCIE_DW
-obj-y				+= dwc/
+ccflags-$(CONFIG_PCI_DEBUG) := -DDEBUG
