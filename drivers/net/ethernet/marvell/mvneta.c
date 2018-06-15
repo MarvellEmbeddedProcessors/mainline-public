@@ -1715,11 +1715,13 @@ static void mvneta_rx_error(struct mvneta_port *pp,
 static void mvneta_rx_csum(struct mvneta_port *pp, u32 status,
 			   struct sk_buff *skb)
 {
-	if ((status & MVNETA_RXD_L3_IP4) &&
-	    (status & MVNETA_RXD_L4_CSUM_OK)) {
-		skb->csum = 0;
-		skb->ip_summed = CHECKSUM_UNNECESSARY;
-		return;
+	if (pp->dev->features & NETIF_F_RXCSUM) {
+		if ((status & MVNETA_RXD_L3_IP4) &&
+		    (status & MVNETA_RXD_L4_CSUM_OK)) {
+			skb->csum = 0;
+			skb->ip_summed = CHECKSUM_UNNECESSARY;
+			return;
+		}
 	}
 
 	skb->ip_summed = CHECKSUM_NONE;
