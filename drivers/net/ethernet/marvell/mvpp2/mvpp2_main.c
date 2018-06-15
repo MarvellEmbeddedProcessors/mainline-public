@@ -61,13 +61,16 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 			     const struct phylink_link_state *state);
 
 /* Queue modes */
-#define MVPP2_QDIST_SINGLE_MODE	0
-#define MVPP2_QDIST_MULTI_MODE	1
+enum mvpp2_qdist_modes {
+	MVPP2_QDIST_SINGLE_MODE = 0,
+	MVPP2_QDIST_MULTI_MODE = 1,
+	MVPP2_QDIST_SINGLE_RESOURCE_MODE = 2,
+};
 
 static int queue_mode = MVPP2_QDIST_MULTI_MODE;
 
 module_param(queue_mode, int, 0444);
-MODULE_PARM_DESC(queue_mode, "Set queue_mode (single=0, multi=1)");
+MODULE_PARM_DESC(queue_mode, "Set queue_mode (single=0, multi=1, single_resource=2)");
 
 /* Utility/helper methods */
 
@@ -88,6 +91,9 @@ static u32 mvpp2_read_relaxed(struct mvpp2 *priv, u32 offset)
 
 static inline u32 mvpp2_cpu_to_thread(struct mvpp2 *priv, int cpu)
 {
+	if (queue_mode == MVPP2_QDIST_SINGLE_RESOURCE_MODE)
+		return 0;
+
 	return cpu % priv->nthreads;
 }
 
@@ -4049,6 +4055,9 @@ static int mvpp2_multi_queue_vectors_init(struct mvpp2_port *port,
 	case MVPP2_QDIST_MULTI_MODE:
 		port->nqvecs = priv->nthreads;
 		break;
+	case MVPP2_QDIST_SINGLE_RESOURCE_MODE:
+		port->nqvecs = 1;
+		break;
 	}
 
 	for (i = 0; i < port->nqvecs; i++) {
@@ -4069,11 +4078,12 @@ static int mvpp2_multi_queue_vectors_init(struct mvpp2_port *port,
 		if (queue_mode == MVPP2_QDIST_MULTI_MODE) {
 			v->first_rxq = i * MVPP2_DEFAULT_RXQ;
 			v->nrxqs = MVPP2_DEFAULT_RXQ;
-		} else if (queue_mode == MVPP2_QDIST_SINGLE_MODE &&
-			   i == (port->nqvecs - 1)) {
+		} else if (i == (port->nqvecs - 1)) {
 			v->first_rxq = 0;
 			v->nrxqs = port->nrxqs;
-			v->type = MVPP2_QUEUE_VECTOR_SHARED;
+
+			if (queue_mode == MVPP2_QDIST_SINGLE_MODE)
+				v->type = MVPP2_QUEUE_VECTOR_SHARED;
 
 			if (port->flags & MVPP2_F_DT_COMPAT)
 				strncpy(irqname, "rx-shared", sizeof(irqname));
@@ -5203,7 +5213,7 @@ static int mvpp2_probe(struct platform_device *pdev)
 	struct mvpp2 *priv;
 	struct resource *res;
 	void __iomem *base;
-	int i, shared;
+	int i, shared = 0;
 	int err;
 
 	priv = devm_kzalloc(&pdev->dev, sizeof(*priv), GFP_KERNEL);
@@ -5268,9 +5278,20 @@ static int mvpp2_probe(struct platform_device *pdev)
 
 	mvpp2_setup_bm_pool();
 
-
-	priv->nthreads = min_t(unsigned int, num_present_cpus(),
-			       MVPP2_MAX_THREADS);
+	switch (queue_mode) {
+	case MVPP2_QDIST_SINGLE_MODE:
+		priv->nthreads = min_t(unsigned int, num_present_cpus(),
+				       MVPP2_MAX_THREADS - 1);
+		break;
+	case MVPP2_QDIST_MULTI_MODE:
+		priv->nthreads = min_t(unsigned int, num_present_cpus(),
+				       MVPP2_MAX_THREADS);
+		break;
+	case MVPP2_QDIST_SINGLE_RESOURCE_MODE:
+		priv->nthreads = 1;
+		bitmap_fill(&priv->lock_map, 1);
+		break;
+	}
 
 	shared = num_present_cpus() - priv->nthreads;
 	if (shared > 0)
