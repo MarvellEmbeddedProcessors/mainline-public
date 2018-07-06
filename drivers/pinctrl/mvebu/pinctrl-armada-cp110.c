@@ -30,14 +30,11 @@
  *  - In Armada8K (dual CP) the MPPs are split into 2 parts, MPPs 0-31 from
  *    CPS, and MPPs 32-62 from CPM, the below flags (V_ARMADA_8K_CPM,
  *    V_ARMADA_8K_CPS) set which MPP is available to the CPx.
- * The x_PLUS enum mean that the MPP available for CPx and for Armada70x0
  */
 enum {
 	V_ARMADA_7K = BIT(0),
 	V_ARMADA_8K_CPM = BIT(1),
 	V_ARMADA_8K_CPS = BIT(2),
-	V_ARMADA_7K_8K_CPM = (V_ARMADA_7K | V_ARMADA_8K_CPM),
-	V_ARMADA_7K_8K_CPS = (V_ARMADA_7K | V_ARMADA_8K_CPS),
 };
 
 static struct mvebu_mpp_mode armada_cp110_mpp_modes[] = {
@@ -659,16 +656,16 @@ static int armada_cp110_pinctrl_probe(struct platform_device *pdev)
 
 		switch (i) {
 		case 0 ... 31:
-			variant = V_ARMADA_7K_8K_CPS;
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPS;
 			break;
 		case 32 ... 38:
-			variant = V_ARMADA_7K_8K_CPM;
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPM;
 			break;
 		case 39 ... 43:
 			variant = V_ARMADA_8K_CPM;
 			break;
 		case 44 ... 62:
-			variant = V_ARMADA_7K_8K_CPM;
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPM;
 			break;
 		}
 
