@@ -655,21 +655,24 @@ static int armada_cp110_pinctrl_probe(struct platform_device *pdev)
 	soc->nmodes = ARRAY_SIZE(armada_cp110_mpp_modes);
 	for (i = 0; i < ARRAY_SIZE(armada_cp110_mpp_modes); i++) {
 		struct mvebu_mpp_mode *m = &armada_cp110_mpp_modes[i];
+		u8 variant;
 
 		switch (i) {
 		case 0 ... 31:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPS);
+			variant = V_ARMADA_7K_8K_CPS;
 			break;
 		case 32 ... 38:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPM);
+			variant = V_ARMADA_7K_8K_CPM;
 			break;
 		case 39 ... 43:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_8K_CPM);
+			variant = V_ARMADA_8K_CPM;
 			break;
 		case 44 ... 62:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPM);
+			variant = V_ARMADA_7K_8K_CPM;
 			break;
 		}
+
+		mvebu_pinctrl_assign_variant(m, variant);
 	}
 	pdev->dev.platform_data = soc;
 
