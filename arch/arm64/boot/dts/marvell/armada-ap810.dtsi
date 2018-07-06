@@ -188,6 +188,29 @@
 				reg-io-width = <1>;
 				status = "disabled";
 			};
+
+			AP810_LABEL(syscon): system-controller@6f4000 {
+				compatible = "syscon", "simple-mfd";
+				reg = <0x6f4000 0x2000>;
+
+				AP810_LABEL(pinctrl): pinctrl {
+					compatible = "marvell,ap810-pinctrl";
+
+					AP810_LABEL(uart0_pins): uart0-pins {
+						marvell,pins = "mpp11", "mpp20";
+						marvell,function = "uart0";
+					};
+				};
+
+				AP810_LABEL(gpio): gpio@1040 {
+					compatible = "marvell,armada-8k-gpio";
+					offset = <0x1040>;
+					ngpios = <21>;
+					gpio-controller;
+					#gpio-cells = <2>;
+					gpio-ranges = <&AP810_LABEL(pinctrl) 0 0 21>;
+				};
+			};
 		};
 	};
 };
