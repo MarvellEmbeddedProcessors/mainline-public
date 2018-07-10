@@ -122,6 +122,7 @@ config ARCH_MVEBU
 	select PINCTRL
 	select PINCTRL_ARMADA_37XX
 	select PINCTRL_ARMADA_AP806
+	select PINCTRL_ARMADA_AP810
 	select PINCTRL_ARMADA_CP110
 	help
 	  This enables support for Marvell EBU familly, including:
