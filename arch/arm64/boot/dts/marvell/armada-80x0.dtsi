@@ -57,6 +57,7 @@
 #define CP110_PCIE0_BASE	f2600000
 #define CP110_PCIE1_BASE	f2620000
 #define CP110_PCIE2_BASE	f2640000
+#define CP110_PINCTRL_COMPAT	"marvell,armada-8k-cpm-pinctrl"
 
 #include "armada-cp110.dtsi"
 
@@ -67,6 +68,7 @@
 #undef CP110_PCIE0_BASE
 #undef CP110_PCIE1_BASE
 #undef CP110_PCIE2_BASE
+#undef CP110_PINCTRL_COMPAT
 
 /*
  * Instantiate the slave CP110
@@ -78,6 +80,7 @@
 #define CP110_PCIE0_BASE	f4600000
 #define CP110_PCIE1_BASE	f4620000
 #define CP110_PCIE2_BASE	f4640000
+#define CP110_PINCTRL_COMPAT	"marvell,armada-8k-cps-pinctrl"
 
 #include "armada-cp110.dtsi"
 
@@ -88,6 +91,7 @@
 #undef CP110_PCIE0_BASE
 #undef CP110_PCIE1_BASE
 #undef CP110_PCIE2_BASE
+#undef CP110_PINCTRL_COMPAT
 
 /* The 80x0 has two CP blocks, but uses only one block from each. */
 &cp1_gpio1 {
@@ -98,16 +102,8 @@
 	status = "okay";
 };
 
-&cp0_syscon0 {
-	cp0_pinctrl: pinctrl {
-		compatible = "marvell,armada-8k-cpm-pinctrl";
-	};
-};
-
 &cp1_syscon0 {
 	cp1_pinctrl: pinctrl {
-		compatible = "marvell,armada-8k-cps-pinctrl";
-
 		nand_pins: nand-pins {
 			marvell,pins =
 			"mpp0", "mpp1", "mpp2", "mpp3",

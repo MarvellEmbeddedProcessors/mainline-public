@@ -34,6 +34,8 @@
  *                                 controller used by the n-th XOR engine.
  *  - CP110_PCIE_MSI_PARENT(n):    the MSI-capable parent interrupt
  *                                 controller used by the n-th PCIE controller.
+ *  - CP110_PINCTRL_COMPAT:        the compatible string used for the
+ *                                 pin-muxing controller
  */
 
 #include <dt-bindings/interrupt-controller/mvebu-icu.h>
@@ -256,6 +258,10 @@
 			CP110_LABEL(clk): clock {
 				compatible = "marvell,cp110-clock";
 				#clock-cells = <2>;
+			};
+
+			CP110_LABEL(pinctrl): pinctrl {
+				compatible = CP110_PINCTRL_COMPAT;
 			};
 
 			CP110_LABEL(gpio1): gpio@100 {
