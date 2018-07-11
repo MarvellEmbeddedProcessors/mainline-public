@@ -17,6 +17,9 @@
  *  - CP110_ICU_MSI_PARENT:        the parent interrupt controller of the
  *                                 CP110 ICU. It should have the form
  *                                 <&label>
+ *  - CP11P_ICU_SEI_PARENT:        the parent interrupt controller for the
+ *                                 SEI interrupts of the CP110 ICU. It should
+ *                                 have the form <&label>
  *  - CP110_XOR_MSI_PARENT(n):     the MSI-capable parent interrupt
  *                                 controller used by the n-th XOR engine.
  *  - CP110_PCIE_MSI_PARENT(n):    the MSI-capable parent interrupt
@@ -224,7 +227,7 @@
 				reg = <0x50 0x10>;
 				#interrupt-cells = <2>;
 				interrupt-controller;
-				msi-parent = <&sei>;
+				msi-parent = CP110_ICU_SEI_PARENT;
 			};
 		};
 
