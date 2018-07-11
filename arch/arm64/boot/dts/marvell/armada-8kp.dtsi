@@ -8,6 +8,7 @@
 #include "armada-common.dtsi"
 
 #define CP110_ICU_MSI_PARENT <&gic>
+#define CP110_ICU_SEI_PARENT	<&AP810_LABEL(sei)>
 #define CP110_XOR_MSI_PARENT(x) <&AP810_LABEL(gic_its) (0x42 + x)>  /* FIXME */
 #define CP110_PCIE_MSI_PARENT(x) <&AP810_LABEL(gic_its) (0x42 + x)> /* FIXME */
 
