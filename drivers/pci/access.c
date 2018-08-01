@@ -127,10 +127,7 @@ int pci_generic_config_read32(struct pci_bus *bus, unsigned int devfn,
 		return PCIBIOS_DEVICE_NOT_FOUND;
 	}
 
-	*val = readl(addr);
-
-	if (size <= 2)
-		*val = (*val >> (8 * (where & 3))) & ((1 << (size * 8)) - 1);
+	*val = pci_read_conf_extract(where, size, readl(addr));
 
 	return PCIBIOS_SUCCESSFUL;
 }
@@ -140,7 +137,6 @@ int pci_generic_config_write32(struct pci_bus *bus, unsigned int devfn,
 			       int where, int size, u32 val)
 {
 	void __iomem *addr;
-	u32 mask, tmp;
 
 	addr = bus->ops->map_bus(bus, devfn, where & ~0x3);
 	if (!addr)
@@ -164,10 +160,8 @@ int pci_generic_config_write32(struct pci_bus *bus, unsigned int devfn,
 			     size, pci_domain_nr(bus), bus->number,
 			     PCI_SLOT(devfn), PCI_FUNC(devfn), where);
 
-	mask = ~(((1 << (size * 8)) - 1) << ((where & 0x3) * 8));
-	tmp = readl(addr) & mask;
-	tmp |= val << ((where & 0x3) * 8);
-	writel(tmp, addr);
+	val = pci_write_conf_store(where, size, readl(addr), val);
+	writel(val, addr);
 
 	return PCIBIOS_SUCCESSFUL;
 }
