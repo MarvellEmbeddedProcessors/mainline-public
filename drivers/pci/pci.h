@@ -452,4 +452,36 @@ static inline int devm_of_pci_get_host_bridge_resources(struct device *dev,
 }
 #endif
 
+/*
+ * Extracts the 8-bit, 16-bit or 32-bit value from a 32-bit PCI config
+ * space read, as specificied by the where and size arguments.
+ */
+static inline u32 pci_read_conf_extract(int where, int size, u32 val)
+{
+	if (size == 4)
+		return val;
+	else
+		return (val >> (8 * (where & 3))) & ((1 << (size * 8)) - 1);
+}
+
+/*
+ * Prepares a 32-bit value to be written into the PCI config space. To
+ * be used when the PCI config space can only be written using 32-bit
+ * accesses. Note: this approach is not spec-compliant because we may
+ * write to RW1C bits, which will get cleared inadvertently.
+ */
+static inline u32 pci_write_conf_store(int where, int size, u32 old, u32 new)
+{
+	u32 mask, tmp;
+
+	if (size == 4)
+		return new;
+
+	mask = ~(((1 << (size * 8)) - 1) << ((where & 0x3) * 8));
+	tmp = old & mask;
+	tmp |= new << ((where & 0x3) * 8);
+
+	return tmp;
+}
+
 #endif /* DRIVERS_PCI_H */
