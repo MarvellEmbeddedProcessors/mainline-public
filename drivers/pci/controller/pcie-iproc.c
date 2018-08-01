@@ -23,6 +23,8 @@
 
 #include "pcie-iproc.h"
 
+#include "../pci.h"
+
 #define EP_PERST_SOURCE_SELECT_SHIFT	2
 #define EP_PERST_SOURCE_SELECT		BIT(EP_PERST_SOURCE_SELECT_SHIFT)
 #define EP_MODE_SURVIVE_PERST_SHIFT	1
@@ -503,7 +505,6 @@ static int iproc_pcie_config_read(struct pci_bus *bus, unsigned int devfn,
 	unsigned int fn = PCI_FUNC(devfn);
 	unsigned int busno = bus->number;
 	void __iomem *cfg_data_p;
-	unsigned int data;
 	int ret;
 
 	/* root complex access */
@@ -523,11 +524,8 @@ static int iproc_pcie_config_read(struct pci_bus *bus, unsigned int devfn,
 	if (!cfg_data_p)
 		return PCIBIOS_DEVICE_NOT_FOUND;
 
-	data = iproc_pcie_cfg_retry(cfg_data_p);
-
-	*val = data;
-	if (size <= 2)
-		*val = (data >> (8 * (where & 3))) & ((1 << (size * 8)) - 1);
+	*val = pci_read_conf_extract(where, size,
+				     iproc_pcie_cfg_retry(cfg_data_p));
 
 	return PCIBIOS_SUCCESSFUL;
 }

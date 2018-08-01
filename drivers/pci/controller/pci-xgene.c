@@ -184,8 +184,7 @@ static int xgene_pcie_config_read32(struct pci_bus *bus, unsigned int devfn,
 	    ((where & ~0x3) == XGENE_V1_PCI_EXP_CAP + PCI_EXP_RTCTL))
 		*val &= ~(PCI_EXP_RTCAP_CRSVIS << 16);
 
-	if (size <= 2)
-		*val = (*val >> (8 * (where & 3))) & ((1 << (size * 8)) - 1);
+	*val = pci_read_conf_extract(where, size, *val);
 
 	return PCIBIOS_SUCCESSFUL;
 }

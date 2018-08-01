@@ -279,17 +279,7 @@ static int _altera_pcie_cfg_read(struct altera_pcie *pcie, u8 busno,
 	if (ret != PCIBIOS_SUCCESSFUL)
 		return ret;
 
-	switch (size) {
-	case 1:
-		*value = (data >> (8 * (where & 0x3))) & 0xff;
-		break;
-	case 2:
-		*value = (data >> (8 * (where & 0x2))) & 0xffff;
-		break;
-	default:
-		*value = data;
-		break;
-	}
+	*value = pci_read_conf_extract(where, size, data);
 
 	return PCIBIOS_SUCCESSFUL;
 }

@@ -476,11 +476,8 @@ static int advk_pcie_rd_conf(struct pci_bus *bus, u32 devfn,
 	advk_pcie_check_pio_status(pcie);
 
 	/* Get the read result */
-	*val = advk_readl(pcie, PIO_RD_DATA);
-	if (size == 1)
-		*val = (*val >> (8 * (where & 3))) & 0xff;
-	else if (size == 2)
-		*val = (*val >> (8 * (where & 3))) & 0xffff;
+	*val = pci_read_conf_extract(where, size,
+				     advk_readl(pcie, PIO_RD_DATA));
 
 	return PCIBIOS_SUCCESSFUL;
 }

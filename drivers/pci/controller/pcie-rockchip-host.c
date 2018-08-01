@@ -131,7 +131,7 @@ static int rockchip_pcie_rd_own_conf(struct rockchip_pcie *rockchip,
 static int rockchip_pcie_wr_own_conf(struct rockchip_pcie *rockchip,
 				     int where, int size, u32 val)
 {
-	u32 mask, tmp, offset;
+	u32 tmp, offset;
 	void __iomem *addr;
 
 	offset = where & ~0x3;
@@ -142,15 +142,12 @@ static int rockchip_pcie_wr_own_conf(struct rockchip_pcie *rockchip,
 		return PCIBIOS_SUCCESSFUL;
 	}
 
-	mask = ~(((1 << (size * 8)) - 1) << ((where & 0x3) * 8));
-
 	/*
 	 * N.B. This read/modify/write isn't safe in general because it can
 	 * corrupt RW1C bits in adjacent registers.  But the hardware
 	 * doesn't support smaller writes.
 	 */
-	tmp = readl(addr) & mask;
-	tmp |= val << ((where & 0x3) * 8);
+	tmp = pci_write_conf_store(where, size, readl(addr), val);
 	writel(tmp, addr);
 
 	return PCIBIOS_SUCCESSFUL;

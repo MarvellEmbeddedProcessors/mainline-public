@@ -280,10 +280,7 @@ static int rcar_pcie_read_conf(struct pci_bus *bus, unsigned int devfn,
 		return ret;
 	}
 
-	if (size == 1)
-		*val = (*val >> (8 * (where & 3))) & 0xff;
-	else if (size == 2)
-		*val = (*val >> (8 * (where & 2))) & 0xffff;
+	*val = pci_read_conf_extract(where, size, *val);
 
 	dev_dbg(&bus->dev, "pcie-config-read: bus=%3d devfn=0x%04x where=0x%04x size=%d val=0x%08lx\n",
 		bus->number, devfn, where, size, (unsigned long)*val);
@@ -296,7 +293,7 @@ static int rcar_pcie_write_conf(struct pci_bus *bus, unsigned int devfn,
 				int where, int size, u32 val)
 {
 	struct rcar_pcie *pcie = bus->sysdata;
-	int shift, ret;
+	int ret;
 	u32 data;
 
 	ret = rcar_pcie_config_access(pcie, RCAR_PCI_ACCESS_READ,
@@ -307,16 +304,7 @@ static int rcar_pcie_write_conf(struct pci_bus *bus, unsigned int devfn,
 	dev_dbg(&bus->dev, "pcie-config-write: bus=%3d devfn=0x%04x where=0x%04x size=%d val=0x%08lx\n",
 		bus->number, devfn, where, size, (unsigned long)val);
 
-	if (size == 1) {
-		shift = 8 * (where & 3);
-		data &= ~(0xff << shift);
-		data |= ((val & 0xff) << shift);
-	} else if (size == 2) {
-		shift = 8 * (where & 2);
-		data &= ~(0xffff << shift);
-		data |= ((val & 0xffff) << shift);
-	} else
-		data = val;
+	data = pci_write_conf_store(where, size, data, val);
 
 	ret = rcar_pcie_config_access(pcie, RCAR_PCI_ACCESS_WRITE,
 				      bus, devfn, where, &data);
