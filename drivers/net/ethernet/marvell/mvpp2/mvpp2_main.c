@@ -1453,6 +1453,9 @@ static void mvpp2_defaults_set(struct mvpp2_port *port)
 		    tx_port_num);
 	mvpp2_write(port->priv, MVPP2_TXP_SCHED_CMD_1_REG, 0);
 
+	/* Set TX-Queues to Round-Robin vs hw-default Fixed-Priority=0xFF */
+	mvpp2_write(port->priv, MVPP2_TXP_SCHED_FIXED_PRIO_REG, 0);
+
 	/* Close bandwidth for all queues */
 	for (queue = 0; queue < MVPP2_MAX_TXQ; queue++) {
 		ptxq = mvpp2_txq_phys(port->id, queue);
