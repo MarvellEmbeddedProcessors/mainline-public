@@ -2428,13 +2428,17 @@ err_cleanup:
 static int mvpp2_setup_txqs(struct mvpp2_port *port)
 {
 	struct mvpp2_tx_queue *txq;
-	int queue, err;
+	int queue, err, thread;
 
 	for (queue = 0; queue < port->ntxqs; queue++) {
 		txq = port->txqs[queue];
 		err = mvpp2_txq_init(port, txq);
 		if (err)
 			goto err_cleanup;
+	}
+
+	for (thread = 0; thread < port->priv->nthreads; thread++) {
+		netif_set_xps_queue(port->dev, cpumask_of(thread), thread);
 	}
 
 	if (port->has_tx_irqs) {
