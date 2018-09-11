@@ -204,9 +204,7 @@ int hclge_mac_start_phy(struct hclge_dev *hdev)
 	}
 
 	phydev->supported &= HCLGE_PHY_SUPPORTED_FEATURES;
-	phydev->supported |= SUPPORTED_Pause | SUPPORTED_Asym_Pause;
-
-	phydev->advertising = phydev->supported;
+	phy_support_asym_pause(phydev);
 
 	return 0;
 }
