@@ -752,6 +752,10 @@ struct mvpp2 {
 
 	/* PRS shadow table */
 	struct mvpp2_prs_shadow *prs_shadow;
+
+	/* CLS C2 engine shadow table */
+	struct mvpp2_cls_c2_shadow *c2_shadow;
+
 	/* PRS auxiliary table for double vlan entries control */
 	bool *prs_double_vlans;
 

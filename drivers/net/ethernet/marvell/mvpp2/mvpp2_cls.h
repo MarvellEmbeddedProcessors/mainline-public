@@ -111,28 +111,21 @@ struct mvpp2_cls_c2_entry {
 };
 
 /* Classifier C2 engine entries */
+
+/* The first entries are for RSS */
 #define MVPP22_CLS_C2_RSS_ENTRY(port)	(port)
-#define MVPP22_CLS_C2_N_ENTRIES		MVPP2_MAX_PORTS
+#define MVPP22_CLS_C2_RSS_MAX		4
 
-/* RSS flow entries in the flow table. We have 2 entries per port for RSS.
- *
- * The first performs a lookup using the C2 TCAM engine, to tag the
- * packet for software forwarding (needed for RSS), enable or disable RSS, and
- * assign the default rx queue.
- *
- * The second configures the hash generation, by specifying which fields of the
- * packet header are used to generate the hash, and specifies the relevant hash
- * engine to use.
- */
-#define MVPP22_RSS_FLOW_C2_OFFS		0
-#define MVPP22_RSS_FLOW_HASH_OFFS	1
-#define MVPP22_RSS_FLOW_SIZE		(MVPP22_RSS_FLOW_HASH_OFFS + 1)
+/* Range in C2 engine that contains ntuple flows */
 
-#define MVPP22_RSS_FLOW_C2(port)	((port) * MVPP22_RSS_FLOW_SIZE + \
-					 MVPP22_RSS_FLOW_C2_OFFS)
-#define MVPP22_RSS_FLOW_HASH(port)	((port) * MVPP22_RSS_FLOW_SIZE + \
-					 MVPP22_RSS_FLOW_HASH_OFFS)
-#define MVPP22_RSS_FLOW_FIRST(port)	MVPP22_RSS_FLOW_C2(port)
+
+/* One entry per lookup_type per port per location  */
+#define MVPP22_CLS_C2_FLOW(port, lu_type, loc)	(MVPP22_CLS_C2_RSS_MAX + \
+						 (((lu_type) - MVPP2_CLS_FLOWS_START) * 16) + \
+						 (loc) * 4 + (port))
+
+#define MVPP22_CLS_C2_N_ENTRIES		256
+#define MVPP22_CLS_C2_LAST		(MVPP22_CLS_C2_N_ENTRIES - 1)
 
 /* Packet flow ID */
 enum mvpp2_prs_flow {
@@ -164,10 +157,33 @@ enum mvpp2_prs_flow {
 
 enum mvpp2_cls_lu_type {
 	MVPP2_CLS_LU_RSS = 0,
+	MVPP2_CLS_FLOWS_START = 32,
+	MVPP2_CLS_FLOWS_LU_END = 63,
 };
+
+#define MVPP2_CLS_C2_LU_TYPE_RFS(flow_type)	((flow_type) + MVPP2_CLS_FLOWS_START)
 
 /* LU Type defined for all engines, and specified in the flow table */
 #define MVPP2_CLS_LU_TYPE_MASK			0x3f
+
+#define MVPP2_N_PRS_FLOWS	52
+#define MVPP2_N_FLOWS		(MVPP2_FL_LAST - MVPP2_FL_START)
+
+/* 21 entries per flow is enough : 5 are dedicated to RSS and global config,
+ * the rest are for the ntuple flow steering
+ */
+#define MVPP2_ENTRIES_PER_FLOW			17
+#define MVPP2_FLOW_ENTRY_LAST(id)		(((id) + 1) * \
+						 MVPP2_ENTRIES_PER_FLOW - 1)
+#define MVPP2_PORT_FLOW_HASH_ENTRY(port, id)	(MVPP2_FLOW_ENTRY_LAST(id) - (port))
+#define MVPP2_FLOW_C2_RSS_ENTRY(id)		(MVPP2_PORT_FLOW_HASH_ENTRY(id, MVPP2_MAX_PORTS) - 1)
+
+#define MVPP2_PORT_FLOW_NTUPLE(port, id,					 \
+			       location)	((id) * MVPP2_ENTRIES_PER_FLOW + \
+						 (location) * MVPP2_MAX_PORTS +  \
+						 (port))
+#define MVPP2_FLOW_ENTRY_FIRST(id)		((id) * MVPP2_ENTRIES_PER_FLOW)
+#define MVPP2_FLOW_NTUPLE_N_LOC			3
 
 struct mvpp2_cls_flow {
 	/* The L2-L4 traffic flow type */
@@ -183,12 +199,13 @@ struct mvpp2_cls_flow {
 	struct mvpp2_prs_result_info prs_ri;
 };
 
-#define MVPP2_N_FLOWS	52
+struct mvpp2_cls_c2_shadow {
+	/* One entry per C2 entry : Pmap | lu_type */
+	u16 c2_layout[MVPP22_CLS_C2_N_ENTRIES];
 
-#define MVPP2_ENTRIES_PER_FLOW			(MVPP2_MAX_PORTS + 1)
-#define MVPP2_FLOW_C2_ENTRY(id)			((id) * MVPP2_ENTRIES_PER_FLOW)
-#define MVPP2_PORT_FLOW_HASH_ENTRY(port, id)	((id) * MVPP2_ENTRIES_PER_FLOW + \
-						(port) + 1)
+	u8 first_free;
+};
+
 struct mvpp2_cls_flow_entry {
 	u32 index;
 	u32 data[MVPP2_CLS_FLOWS_TBL_DATA_WORDS];
@@ -209,6 +226,11 @@ void mvpp22_rss_disable(struct mvpp2_port *port);
 
 int mvpp2_ethtool_rxfh_get(struct mvpp2_port *port, struct ethtool_rxnfc *info);
 int mvpp2_ethtool_rxfh_set(struct mvpp2_port *port, struct ethtool_rxnfc *info);
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
 
 void mvpp2_cls_init(struct mvpp2 *priv);
 
