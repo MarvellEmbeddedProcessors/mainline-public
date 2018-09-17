@@ -3934,6 +3934,12 @@ static int mvpp2_ethtool_set_rxnfc(struct net_device *dev,
 	case ETHTOOL_SRXFH:
 		ret = mvpp2_ethtool_rxfh_set(port, info);
 		break;
+	case ETHTOOL_SRXCLSRLINS:
+		ret = mvpp2_ethtool_cls_rule_ins(port, info);
+		break;
+	case ETHTOOL_SRXCLSRLDEL:
+		ret = mvpp2_ethtool_cls_rule_del(port, info);
+		break;
 	default:
 		return -EOPNOTSUPP;
 	}
@@ -4730,7 +4736,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	unsigned long flags = 0;
 	bool has_tx_irqs;
 	u32 id;
-	int features;
+	netdev_features_t features;
 	int phy_mode;
 	int err, i;
 
@@ -4899,11 +4905,12 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 		}
 	}
 
+	/* FIXME : Allow ntuple HW */
 	features = NETIF_F_SG | NETIF_F_IP_CSUM | NETIF_F_IPV6_CSUM |
-		   NETIF_F_TSO;
+		   NETIF_F_TSO | NETIF_F_NTUPLE;
 	dev->features = features | NETIF_F_RXCSUM;
 	dev->hw_features |= features | NETIF_F_RXCSUM | NETIF_F_GRO |
-			    NETIF_F_HW_VLAN_CTAG_FILTER;
+			    NETIF_F_HW_VLAN_CTAG_FILTER | NETIF_F_NTUPLE;
 
 	if (mvpp22_rss_is_supported())
 		dev->hw_features |= NETIF_F_RXHASH;
@@ -5398,6 +5405,12 @@ static int mvpp2_probe(struct platform_device *pdev)
 	if (dev_of_node(&pdev->dev))
 		of_reserved_mem_device_init_by_idx(&pdev->dev,
 						   pdev->dev.of_node, 0);
+
+	priv->c2_shadow = devm_kmalloc(&pdev->dev, sizeof(*priv->c2_shadow),
+					GFP_KERNEL);
+
+	if (!priv->c2_shadow)
+		return -ENOMEM;
 
 	/* Initialize network controller */
 	err = mvpp2_init(pdev, priv);
