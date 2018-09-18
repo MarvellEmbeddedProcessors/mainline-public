@@ -6,12 +6,14 @@ config PCI_MVEBU
 	depends on ARCH_MVEBU || ARCH_DOVE
 	depends on ARM
 	depends on OF
+	select PCI_BRIDGE_EMUL
 
 config PCI_AARDVARK
 	bool "Aardvark PCIe controller"
 	depends on ARCH_MVEBU && ARM64
 	depends on OF
 	depends on PCI_MSI_IRQ_DOMAIN
+	select PCI_BRIDGE_EMUL
 	help
 	 Add support for Aardvark 64bit PCIe Host Controller. This
 	 controller is part of the South Bridge of the Marvel Armada

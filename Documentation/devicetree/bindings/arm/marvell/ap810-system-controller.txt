@@ -1,0 +1,78 @@
+Marvell Armada AP810 System Controller
+======================================
+
+The AP810 is one of the two core HW blocks of the Marvell Armada 8KP
+SoCs. It contains a system controller, which provides a number
+registers giving access to numerous features: clocks, pin-muxing and
+many other SoC configuration items. This DT binding allows to describe
+this system controller.
+
+For the top level node:
+ - compatible: must be: "syscon", "simple-mfd";
+  - reg: register area of the AP810 system controller
+
+Pinctrl:
+--------
+
+For common binding part and usage, refer to
+Documentation/devicetree/bindings/pinctrl/marvell,mvebu-pinctrl.txt.
+
+Required properties:
+- compatible must be "marvell,ap810-pinctrl",
+
+Available mpp pins/groups and functions:
+Note: brackets (x) are not part of the mpp name for marvell,function and given
+only for more detailed description in this document.
+
+name	pins	functions
+================================================================================
+mpp0	0	gpio, sdio(clk), i2c0(sda)
+mpp1	1	gpio, sdio(cmd), i2c0(sck)
+mpp2	2	gpio, sdio(d0), uart1(rxd)
+mpp3	3	gpio, sdio(d1)
+mpp4	4	gpio, sdio(d2), uart1(txd)
+mpp5	5	gpio, sdio(d3)
+mpp6	6	gpio, sdio(ds), spi0(cs1n)
+mpp7	7	gpio, sdio(d4), spi0(clk), uart1(rxd)
+mpp8	8	gpio, sdio(d5), spi0(miso), uart1(txd)
+mpp9	9	gpio, sdio(d6), spi0(mosi)
+mpp10	10	gpio, sdio(d7), spi0(cs0n)
+mpp11	11	gpio, uart0(txd)
+mpp12	12	gpio, sdio(pw_off), sdio(hw_rst), sdio(sd_pwr0)
+mpp13	13	gpio, mss-gpio, sdio(sd_pwr1)
+mpp14	14	gpio, mss-gpio, sdio(sd_v18en)
+mpp15	15	gpio, mss-gpio
+mpp16	16	gpio, mss-gpio
+mpp17	17	gpio, mss-gpio, i2c0(sda)
+mpp18	18	gpio, mss-gpio, i2c0(sck), sdio(pw_off)
+mpp19	19	gpio, mss-gpipo, uart0(rxd)
+
+GPIO:
+-----
+For common binding part and usage, refer to
+Documentation/devicetree/bindings/gpio/gpio-mvebu.txt.
+
+Required properties:
+
+- compatible: "marvell,armada-8k-gpio"
+
+- offset: offset address inside the syscon block
+
+Example:
+ap_syscon: system-controller@6f4000 {
+	compatible = "syscon", "simple-mfd";
+	reg = <0x6f4000 0x1000>;
+
+	ap_pinctrl: pinctrl {
+		compatible = "marvell,ap810-pinctrl";
+	};
+
+	ap_gpio: gpio {
+		compatible = "marvell,armada-8k-gpio";
+		offset = <0x1040>;
+		ngpios = <21>;
+		gpio-controller;
+		#gpio-cells = <2>;
+		gpio-ranges = <&ap_pinctrl 0 0 21>;
+	};
+};

@@ -30,14 +30,13 @@
  *  - In Armada8K (dual CP) the MPPs are split into 2 parts, MPPs 0-31 from
  *    CPS, and MPPs 32-62 from CPM, the below flags (V_ARMADA_8K_CPM,
  *    V_ARMADA_8K_CPS) set which MPP is available to the CPx.
- * The x_PLUS enum mean that the MPP available for CPx and for Armada70x0
+ *  - In Armada 8KP, all 62 MPPs are available
  */
 enum {
 	V_ARMADA_7K = BIT(0),
 	V_ARMADA_8K_CPM = BIT(1),
 	V_ARMADA_8K_CPS = BIT(2),
-	V_ARMADA_7K_8K_CPM = (V_ARMADA_7K | V_ARMADA_8K_CPM),
-	V_ARMADA_7K_8K_CPS = (V_ARMADA_7K | V_ARMADA_8K_CPS),
+	V_ARMADA_8KP = BIT(3),
 };
 
 static struct mvebu_mpp_mode armada_cp110_mpp_modes[] = {
@@ -617,6 +616,10 @@ static const struct of_device_id armada_cp110_pinctrl_of_match[] = {
 		.compatible	= "marvell,armada-8k-cps-pinctrl",
 		.data		= (void *) V_ARMADA_8K_CPS,
 	},
+	{
+		.compatible	= "marvell,armada-8kp-pinctrl",
+		.data		= (void *) V_ARMADA_8KP,
+	},
 	{ },
 };
 
@@ -655,21 +658,24 @@ static int armada_cp110_pinctrl_probe(struct platform_device *pdev)
 	soc->nmodes = ARRAY_SIZE(armada_cp110_mpp_modes);
 	for (i = 0; i < ARRAY_SIZE(armada_cp110_mpp_modes); i++) {
 		struct mvebu_mpp_mode *m = &armada_cp110_mpp_modes[i];
+		u8 variant;
 
 		switch (i) {
 		case 0 ... 31:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPS);
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPS | V_ARMADA_8KP;
 			break;
 		case 32 ... 38:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPM);
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPM | V_ARMADA_8KP;
 			break;
 		case 39 ... 43:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_8K_CPM);
+			variant = V_ARMADA_8K_CPM | V_ARMADA_8KP;
 			break;
 		case 44 ... 62:
-			mvebu_pinctrl_assign_variant(m, V_ARMADA_7K_8K_CPM);
+			variant = V_ARMADA_7K | V_ARMADA_8K_CPM | V_ARMADA_8KP;
 			break;
 		}
+
+		mvebu_pinctrl_assign_variant(m, variant);
 	}
 	pdev->dev.platform_data = soc;
 

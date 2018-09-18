@@ -6,6 +6,22 @@
  */
 
 / {
+	reserved-memory {
+		#address-cells = <2>;
+		#size-cells = <2>;
+		ranges;
+
+		/*
+		 * Reserve 16M for the PPv2 engine of continuous memory pool for
+		 * DMA allocations.
+		 */
+		eth_cma: cma {
+			compatible = "shared-dma-pool";
+			size = <0 0x1000000>;
+			reusable;
+		};
+	};
+
 	aliases {
 		gpio1 = &cp0_gpio1;
 		gpio2 = &cp0_gpio2;
@@ -24,6 +40,18 @@
 #define CP110_PCIE0_BASE	f2600000
 #define CP110_PCIE1_BASE	f2620000
 #define CP110_PCIE2_BASE	f2640000
+#define CP110_ICU_MSI_PARENT	<&gicp>
+#define CP110_ICU_SEI_PARENT	<&sei>
+#define CP110_XOR_MSI_PARENT(x)	<&gic_v2m0>
+#define CP110_PCIE_MSI_PARENT(x)	<&gic_v2m0>
+#define CP110_PCIEx_CPU_IO_BASE(iface)	(CP110_PCIE_IO_BASE + (iface *  0x10000))
+#define CP110_PCIEx_CPU_MEM_BASE(iface)	(CP110_PCIE_MEM_BASE + (iface *  0x1000000))
+#define CP110_PCIEx_BUS_IO_BASE(iface)	(CP110_PCIEx_CPU_IO_BASE(iface))
+#define CP110_PCIEx_BUS_MEM_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface))
+#define CP110_PCIEx_CONF_BASE(iface)	(CP110_PCIEx_CPU_MEM_BASE(iface) + 0xf00000)
+#define CP110_PCIE_MEM_CFG		(0x82000000)
+#define CP110_PCIE_MEM_SIZE		(0xf00000)
+#define CP110_PINCTRL_COMPAT		"marvell,armada-7k-pinctrl"
 
 #include "armada-cp110.dtsi"
 
@@ -34,6 +62,7 @@
 #undef CP110_PCIE0_BASE
 #undef CP110_PCIE1_BASE
 #undef CP110_PCIE2_BASE
+#undef CP110_PINCTRL_COMPAT
 
 &cp0_gpio1 {
 	status = "okay";
@@ -45,8 +74,6 @@
 
 &cp0_syscon0 {
 	cp0_pinctrl: pinctrl {
-		compatible = "marvell,armada-7k-pinctrl";
-
 		nand_pins: nand-pins {
 			marvell,pins =
 			"mpp15", "mpp16", "mpp17", "mpp18",
@@ -61,4 +88,8 @@
 			marvell,function = "nf";
 		};
 	};
+};
+
+&cp0_ethernet {
+	memory-region = <&eth_cma>;
 };
