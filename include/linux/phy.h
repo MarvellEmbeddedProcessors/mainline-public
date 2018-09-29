@@ -908,6 +908,9 @@ static inline int phy_read_status(struct phy_device *phydev)
 #define phydev_err(_phydev, format, args...)	\
 	dev_err(&_phydev->mdio.dev, format, ##args)
 
+#define phydev_warn(_phydev, format, args...)	\
+	dev_warn(&_phydev->mdio.dev, format, ##args)
+
 #define phydev_dbg(_phydev, format, args...)	\
 	dev_dbg(&_phydev->mdio.dev, format, ##args)
 

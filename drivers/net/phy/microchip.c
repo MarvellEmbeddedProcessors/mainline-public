@@ -66,6 +66,151 @@ static int lan88xx_suspend(struct phy_device *phydev)
 	return 0;
 }
 
+static int lan88xx_TR_reg_set(struct phy_device *phydev, u16 regaddr,
+			      u32 data)
+{
+	int val, save_page, ret = 0;
+	u16 buf;
+
+	/* Save current page */
+	save_page = phy_save_page(phydev);
+	if (save_page < 0) {
+		phydev_warn(phydev, "Failed to get current page\n");
+		goto err;
+	}
+
+	/* Switch to TR page */
+	lan88xx_write_page(phydev, LAN88XX_EXT_PAGE_ACCESS_TR);
+
+	ret = __phy_write(phydev, LAN88XX_EXT_PAGE_TR_LOW_DATA,
+			  (data & 0xFFFF));
+	if (ret < 0) {
+		phydev_warn(phydev, "Failed to write TR low data\n");
+		goto err;
+	}
+
+	ret = __phy_write(phydev, LAN88XX_EXT_PAGE_TR_HIGH_DATA,
+			  (data & 0x00FF0000) >> 16);
+	if (ret < 0) {
+		phydev_warn(phydev, "Failed to write TR high data\n");
+		goto err;
+	}
+
+	/* Config control bits [15:13] of register */
+	buf = (regaddr & ~(0x3 << 13));/* Clr [14:13] to write data in reg */
+	buf |= 0x8000; /* Set [15] to Packet transmit */
+
+	ret = __phy_write(phydev, LAN88XX_EXT_PAGE_TR_CR, buf);
+	if (ret < 0) {
+		phydev_warn(phydev, "Failed to write data in reg\n");
+		goto err;
+	}
+
+	usleep_range(1000, 2000);/* Wait for Data to be written */
+	val = __phy_read(phydev, LAN88XX_EXT_PAGE_TR_CR);
+	if (!(val & 0x8000))
+		phydev_warn(phydev, "TR Register[0x%X] configuration failed\n",
+			    regaddr);
+err:
+	return phy_restore_page(phydev, save_page, ret);
+}
+
+static void lan88xx_config_TR_regs(struct phy_device *phydev)
+{
+	int err;
+
+	/* Get access to Channel 0x1, Node 0xF , Register 0x01.
+	 * Write 24-bit value 0x12B00A to register. Setting MrvlTrFix1000Kf,
+	 * MrvlTrFix1000Kp, MasterEnableTR bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x0F82, 0x12B00A);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x0F82]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x06.
+	 * Write 24-bit value 0xD2C46F to register. Setting SSTrKf1000Slv,
+	 * SSTrKp1000Mas bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x168C, 0xD2C46F);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x168C]\n");
+
+	/* Get access to Channel b'10, Node b'1111, Register 0x11.
+	 * Write 24-bit value 0x620 to register. Setting rem_upd_done_thresh
+	 * bits
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x17A2, 0x620);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x17A2]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x10.
+	 * Write 24-bit value 0xEEFFDD to register. Setting
+	 * eee_TrKp1Long_1000, eee_TrKp2Long_1000, eee_TrKp3Long_1000,
+	 * eee_TrKp1Short_1000,eee_TrKp2Short_1000, eee_TrKp3Short_1000 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x16A0, 0xEEFFDD);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x16A0]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x13.
+	 * Write 24-bit value 0x071448 to register. Setting
+	 * slv_lpi_tr_tmr_val1, slv_lpi_tr_tmr_val2 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x16A6, 0x071448);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x16A6]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x12.
+	 * Write 24-bit value 0x13132F to register. Setting
+	 * slv_sigdet_timer_val1, slv_sigdet_timer_val2 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x16A4, 0x13132F);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x16A4]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x14.
+	 * Write 24-bit value 0x0 to register. Setting eee_3level_delay,
+	 * eee_TrKf_freeze_delay bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x16A8, 0x0);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x16A8]\n");
+
+	/* Get access to Channel b'01, Node b'1111, Register 0x34.
+	 * Write 24-bit value 0x91B06C to register. Setting
+	 * FastMseSearchThreshLong1000, FastMseSearchThreshShort1000,
+	 * FastMseSearchUpdGain1000 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x0FE8, 0x91B06C);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x0FE8]\n");
+
+	/* Get access to Channel b'01, Node b'1111, Register 0x3E.
+	 * Write 24-bit value 0xC0A028 to register. Setting
+	 * FastMseKp2ThreshLong1000, FastMseKp2ThreshShort1000,
+	 * FastMseKp2UpdGain1000, FastMseKp2ExitEn1000 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x0FFC, 0xC0A028);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x0FFC]\n");
+
+	/* Get access to Channel b'01, Node b'1111, Register 0x35.
+	 * Write 24-bit value 0x041600 to register. Setting
+	 * FastMseSearchPhShNum1000, FastMseSearchClksPerPh1000,
+	 * FastMsePhChangeDelay1000 bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x0FEA, 0x041600);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x0FEA]\n");
+
+	/* Get access to Channel b'10, Node b'1101, Register 0x03.
+	 * Write 24-bit value 0x000004 to register. Setting TrFreeze bits.
+	 */
+	err = lan88xx_TR_reg_set(phydev, 0x1686, 0x000004);
+	if (err < 0)
+		phydev_warn(phydev, "Failed to Set Register[0x1686]\n");
+}
+
 static int lan88xx_probe(struct phy_device *phydev)
 {
 	struct device *dev = &phydev->mdio.dev;
