@@ -24,6 +24,8 @@ endif
 # Build the PCI MSI interrupt support
 obj-$(CONFIG_PCI_MSI) += msi.o
 
+obj-$(CONFIG_PCI_BRIDGE_EMUL)	+= pci-bridge-emul.o
+
 # Build the Hypertransport interrupt support
 obj-$(CONFIG_HT_IRQ) += htirq.o
 
