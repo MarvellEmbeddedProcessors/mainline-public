@@ -33,6 +33,8 @@ obj-$(CONFIG_HT_IRQ) += htirq.o
 obj-$(CONFIG_PCI_ATS) += ats.o
 obj-$(CONFIG_PCI_IOV) += iov.o
 
+obj-$(CONFIG_PCI_BRIDGE_EMUL)  += pci-bridge-emul.o
+
 #
 # ACPI Related PCI FW Functions
 # ACPI _DSM provided firmware instance and string name
