@@ -528,6 +528,7 @@ static int mv88e6xxx_port_setup_mac(struct mv88e6xxx_chip *chip, int port,
 				    phy_interface_t mode)
 {
 	int err;
+	pr_info("%s\n", __func__);
 
 	if (!chip->info->ops->port_set_link)
 		return 0;

@@ -374,6 +374,8 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	if (port != 9 && port != 10)
 		return -EOPNOTSUPP;
 
+	pr_info("%s\n", __func__);
+
 	switch (mode) {
 	case PHY_INTERFACE_MODE_1000BASEX:
 		cmode = MV88E6XXX_PORT_STS_CMODE_1000BASE_X;
