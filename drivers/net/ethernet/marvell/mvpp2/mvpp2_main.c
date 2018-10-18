@@ -4737,7 +4737,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	unsigned long flags = 0;
 	bool has_tx_irqs;
 	u32 id;
-	int features;
+	netdev_features_t features;
 	int phy_mode;
 	int err, i;
 
