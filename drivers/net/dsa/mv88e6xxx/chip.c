@@ -2003,8 +2003,10 @@ static void mv88e6xxx_crosschip_bridge_leave(struct dsa_switch *ds, int dev,
 
 static int mv88e6xxx_software_reset(struct mv88e6xxx_chip *chip)
 {
-	if (chip->info->ops->reset)
+	if (chip->info->ops->reset) {
 		return chip->info->ops->reset(chip);
+		pr_info("%s\n", __func__);
+	}
 
 	return 0;
 }
@@ -2019,6 +2021,7 @@ static void mv88e6xxx_hardware_reset(struct mv88e6xxx_chip *chip)
 		usleep_range(10000, 20000);
 		gpiod_set_value_cansleep(gpiod, 0);
 		usleep_range(10000, 20000);
+		pr_info("%s\n", __func__);
 	}
 }
 

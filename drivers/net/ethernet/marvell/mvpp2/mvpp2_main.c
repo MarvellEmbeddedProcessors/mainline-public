@@ -1009,12 +1009,23 @@ static void mvpp22_gop_init_rxaui(struct mvpp2_port *port)
 	void __iomem *xpcs = priv->iface_base + MVPP22_XPCS_BASE(port->gop_id);
 	u32 val;
 
+	/* Reset */
+	val = readl(xpcs + MVPP22_XPCS_CFG0);
+	val &= ~BIT(0);
+	writel(val, xpcs + MVPP22_XPCS_CFG0);
+
 	/* XPCS */
 	val = readl(xpcs + MVPP22_XPCS_CFG0);
 	val &= ~(MVPP22_XPCS_CFG0_PCS_MODE(0x3) |
 		 MVPP22_XPCS_CFG0_ACTIVE_LANE(0x3));
 	val |= MVPP22_XPCS_CFG0_ACTIVE_LANE(2);
 	writel(val, xpcs + MVPP22_XPCS_CFG0);
+
+	/* UnReset */
+	val = readl(xpcs + MVPP22_XPCS_CFG0);
+	val |= BIT(0);
+	writel(val, xpcs + MVPP22_XPCS_CFG0);
+	
 }
 
 static void mvpp22_gop_init_10gkr(struct mvpp2_port *port)
@@ -4186,6 +4197,13 @@ static int mvpp2_port_init(struct mvpp2_port *port)
 	struct mvpp2_txq_pcpu *txq_pcpu;
 	unsigned int thread;
 	int queue, err;
+
+
+	/*
+	u32 reg = mvpp2_read(priv, MVPP2_MH_REG(port->id));
+	reg |= MVPP2_DSA_EXTENDED;
+	mvpp2_write(priv, MVPP2_MH_REG(port->id), reg);
+	*/
 
 	/* Checks for hardware constraints */
 	if (port->first_rxq + port->nrxqs >

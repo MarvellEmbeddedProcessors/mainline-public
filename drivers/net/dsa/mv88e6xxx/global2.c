@@ -834,6 +834,8 @@ static int mv88e6390_watchdog_action(struct mv88e6xxx_chip *chip, int irq)
 	mv88e6xxx_g2_write(chip, MV88E6390_G2_WDOG_CTL,
 			   MV88E6390_G2_WDOG_CTL_PTR_EVENT);
 	err = mv88e6xxx_g2_read(chip, MV88E6390_G2_WDOG_CTL, &reg);
+	if (err)
+		pr_info("%s : Error reading wdog ctl\n", __func__);
 
 	dev_info(chip->dev, "Watchdog event: 0x%04x",
 		 reg & MV88E6390_G2_WDOG_CTL_DATA_MASK);
@@ -841,13 +843,23 @@ static int mv88e6390_watchdog_action(struct mv88e6xxx_chip *chip, int irq)
 	mv88e6xxx_g2_write(chip, MV88E6390_G2_WDOG_CTL,
 			   MV88E6390_G2_WDOG_CTL_PTR_HISTORY);
 	err = mv88e6xxx_g2_read(chip, MV88E6390_G2_WDOG_CTL, &reg);
+	if (err)
+		pr_info("%s : Error reading wdog hist\n", __func__);
 
 	dev_info(chip->dev, "Watchdog history: 0x%04x",
 		 reg & MV88E6390_G2_WDOG_CTL_DATA_MASK);
 
 	/* Trigger a software reset to try to recover the switch */
-	if (chip->info->ops->reset)
-		chip->info->ops->reset(chip);
+	if (chip->info->ops->reset) {
+		pr_info("%s : Resetting the switch\n", __func__);
+		err = chip->info->ops->reset(chip);
+		if (err)
+			pr_info("%s : Error resetting the souiche\n", __func__);
+		else
+			pr_info("%s : Reset done\n", __func__);
+	} else {
+		pr_info("%s : No reset function\n", __func__);
+	}
 
 	mv88e6390_watchdog_setup(chip);
 

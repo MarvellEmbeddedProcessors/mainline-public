@@ -161,6 +161,8 @@ int mv88e6185_g1_reset(struct mv88e6xxx_chip *chip)
 	u16 val;
 	int err;
 
+	pr_info("%s\n", __func__);
+
 	/* Set the SWReset bit 15 along with the PPUEn bit 14, to also restart
 	 * the PPU, including re-doing PHY detection and initialization
 	 */
@@ -187,6 +189,7 @@ int mv88e6352_g1_reset(struct mv88e6xxx_chip *chip)
 	u16 val;
 	int err;
 
+	pr_info("%s\n", __func__);
 	/* Set the SWReset bit 15 */
 	err = mv88e6xxx_g1_read(chip, MV88E6XXX_G1_CTL1, &val);
 	if (err)
