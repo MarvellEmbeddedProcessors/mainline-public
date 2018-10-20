@@ -1869,6 +1869,7 @@ EXPORT_SYMBOL(phy_remove_link_mode);
  */
 void phy_support_sym_pause(struct phy_device *phydev)
 {
+	phydev->supported &= ~SUPPORTED_Asym_Pause;
 	phydev->supported |= SUPPORTED_Pause;
 	phydev->advertising = phydev->supported;
 }
