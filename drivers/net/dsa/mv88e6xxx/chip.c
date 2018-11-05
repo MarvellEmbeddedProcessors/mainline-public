@@ -530,42 +530,53 @@ static int mv88e6xxx_port_setup_mac(struct mv88e6xxx_chip *chip, int port,
 	int err;
 	pr_info("%s\n", __func__);
 
-	if (!chip->info->ops->port_set_link)
+	if (!chip->info->ops->port_set_link) {
+		pr_info("%s : No port_set_link\n", __func__);
 		return 0;
+	}
 
 	/* Port's MAC control must not be changed unless the link is down */
 	err = chip->info->ops->port_set_link(chip, port, 0);
 	if (err)
 		return err;
 
+	pr_info("Starting config\n");
+
 	if (chip->info->ops->port_set_speed) {
 		err = chip->info->ops->port_set_speed(chip, port, speed);
-		if (err && err != -EOPNOTSUPP)
+		if (err && err != -EOPNOTSUPP) {
 			goto restore_link;
+		}
 	}
 
 	if (chip->info->ops->port_set_pause) {
 		err = chip->info->ops->port_set_pause(chip, port, pause);
-		if (err)
+		if (err) {
 			goto restore_link;
+		}
 	}
 
 	if (chip->info->ops->port_set_duplex) {
 		err = chip->info->ops->port_set_duplex(chip, port, duplex);
-		if (err && err != -EOPNOTSUPP)
+		if (err && err != -EOPNOTSUPP) {
 			goto restore_link;
+		}
 	}
 
 	if (chip->info->ops->port_set_rgmii_delay) {
 		err = chip->info->ops->port_set_rgmii_delay(chip, port, mode);
-		if (err && err != -EOPNOTSUPP)
+		if (err && err != -EOPNOTSUPP) {
 			goto restore_link;
+		}
 	}
 
 	if (chip->info->ops->port_set_cmode) {
+		pr_info("Calling port_set_cmode on port %d\n", port);
 		err = chip->info->ops->port_set_cmode(chip, port, mode);
-		if (err && err != -EOPNOTSUPP)
+		if (err && err != -EOPNOTSUPP) {
+			pr_info("%s : Err port_set_cmode for port %d\n", __func__, port);
 			goto restore_link;
+		 }
 	}
 
 	err = 0;
@@ -592,6 +603,8 @@ static void mv88e6xxx_adjust_link(struct dsa_switch *ds, int port,
 {
 	struct mv88e6xxx_chip *chip = ds->priv;
 	int err;
+
+	pr_info("%s : port %d\n", __func__, port);
 
 	if (!phy_is_pseudo_fixed_link(phydev) &&
 	    mv88e6xxx_phy_is_internal(ds, port))
@@ -718,6 +731,8 @@ static void mv88e6xxx_mac_config(struct dsa_switch *ds, int port,
 	struct mv88e6xxx_chip *chip = ds->priv;
 	int speed, duplex, link, pause, err;
 
+	pr_info("%s : port %d\n", __func__, port);
+
 	if ((mode == MLO_AN_PHY) && mv88e6xxx_phy_is_internal(ds, port))
 		return;
 
@@ -770,6 +785,7 @@ static void mv88e6xxx_mac_link_up(struct dsa_switch *ds, int port,
 				  unsigned int mode, phy_interface_t interface,
 				  struct phy_device *phydev)
 {
+	pr_info("%s : port %d\n", __func__, port);
 	if (mode == MLO_AN_FIXED)
 		mv88e6xxx_mac_link_force(ds, port, LINK_FORCED_UP);
 }
@@ -2082,6 +2098,7 @@ static int mv88e6xxx_set_port_mode(struct mv88e6xxx_chip *chip, int port,
 
 static int mv88e6xxx_set_port_mode_normal(struct mv88e6xxx_chip *chip, int port)
 {
+	pr_info("Setting port %d to normal\n", port);
 	return mv88e6xxx_set_port_mode(chip, port, MV88E6XXX_FRAME_MODE_NORMAL,
 				       MV88E6XXX_EGRESS_MODE_UNMODIFIED,
 				       MV88E6XXX_PORT_ETH_TYPE_DEFAULT);
@@ -2089,6 +2106,7 @@ static int mv88e6xxx_set_port_mode_normal(struct mv88e6xxx_chip *chip, int port)
 
 static int mv88e6xxx_set_port_mode_dsa(struct mv88e6xxx_chip *chip, int port)
 {
+	pr_info("Setting port %d to dsa\n", port);
 	return mv88e6xxx_set_port_mode(chip, port, MV88E6XXX_FRAME_MODE_DSA,
 				       MV88E6XXX_EGRESS_MODE_UNMODIFIED,
 				       MV88E6XXX_PORT_ETH_TYPE_DEFAULT);
@@ -2096,6 +2114,7 @@ static int mv88e6xxx_set_port_mode_dsa(struct mv88e6xxx_chip *chip, int port)
 
 static int mv88e6xxx_set_port_mode_edsa(struct mv88e6xxx_chip *chip, int port)
 {
+	pr_info("Setting port %d to edsa\n", port);
 	return mv88e6xxx_set_port_mode(chip, port,
 				       MV88E6XXX_FRAME_MODE_ETHERTYPE,
 				       MV88E6XXX_EGRESS_MODE_ETHERTYPE,
@@ -3781,6 +3800,9 @@ static const struct mv88e6xxx_ops mv88e6390x_ops = {
 	.vtu_getnext = mv88e6390_g1_vtu_getnext,
 	.vtu_loadpurge = mv88e6390_g1_vtu_loadpurge,
 	.serdes_power = mv88e6390x_serdes_power,
+	.serdes_get_sset_count = mv88e6390_serdes_get_sset_count,
+	.serdes_get_strings = mv88e6390_serdes_get_strings,
+	.serdes_get_stats = mv88e6390_serdes_get_stats,
 	.serdes_irq_setup = mv88e6390_serdes_irq_setup,
 	.serdes_irq_free = mv88e6390_serdes_irq_free,
 	.gpio_ops = &mv88e6352_gpio_ops,
@@ -4372,7 +4394,7 @@ static const struct mv88e6xxx_info mv88e6xxx_table[] = {
 		.atu_move_port_mask = 0x1f,
 		.pvt = true,
 		.multi_chip = true,
-		.tag_protocol = DSA_TAG_PROTO_DSA,
+		.tag_protocol = DSA_TAG_PROTO_EDSA,
 		.ptp_support = true,
 		.ops = &mv88e6390x_ops,
 	},
@@ -4757,20 +4779,26 @@ static int mv88e6xxx_probe(struct mdio_device *mdiodev)
 	return 0;
 
 out_mdio:
+	pr_info("out_mdio\n");
 	mv88e6xxx_mdios_unregister(chip);
 out_g1_vtu_prob_irq:
+	pr_info("out_g1_vtu_prob_irq\n");
 	mv88e6xxx_g1_vtu_prob_irq_free(chip);
 out_g1_atu_prob_irq:
+	pr_info("out_g1_atu_prob_irq\n");
 	mv88e6xxx_g1_atu_prob_irq_free(chip);
 out_g2_irq:
+	pr_info("out_g2_irq\n");
 	if (chip->info->g2_irqs > 0)
 		mv88e6xxx_g2_irq_free(chip);
 out_g1_irq:
+	pr_info("out_g1_irq\n");
 	if (chip->irq > 0)
 		mv88e6xxx_g1_irq_free(chip);
 	else
 		mv88e6xxx_irq_poll_free(chip);
 out:
+	pr_info("out\n");
 	if (pdata)
 		dev_put(pdata->netdev);
 

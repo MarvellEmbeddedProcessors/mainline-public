@@ -85,6 +85,20 @@ static bool mv88e6352_port_has_serdes(struct mv88e6xxx_chip *chip, int port)
 	return false;
 }
 
+static bool mv88e6390_port_has_serdes(struct mv88e6xxx_chip *chip, int port)
+{
+	u8 cmode = chip->ports[port].cmode;
+
+	if ((cmode == MV88E6XXX_PORT_STS_CMODE_100BASE_X) ||
+	    (cmode == MV88E6XXX_PORT_STS_CMODE_1000BASE_X) ||
+	    (cmode == MV88E6XXX_PORT_STS_CMODE_XAUI) ||
+	    (cmode == MV88E6XXX_PORT_STS_CMODE_RXAUI) ||
+	    (cmode == MV88E6XXX_PORT_STS_CMODE_SGMII))
+		return true;
+
+	return false;
+}
+
 int mv88e6352_serdes_power(struct mv88e6xxx_chip *chip, int port, bool on)
 {
 	int err;
@@ -290,6 +304,7 @@ void mv88e6352_serdes_irq_free(struct mv88e6xxx_chip *chip, int port)
 	chip->ports[port].serdes_irq = 0;
 }
 
+
 /* Return the SERDES lane address a port is using. Only Ports 9 and 10
  * have SERDES lanes. Returns -ENODEV if a port does not have a lane.
  */
@@ -395,6 +410,123 @@ int mv88e6390x_serdes_get_lane(struct mv88e6xxx_chip *chip, int port)
 	}
 }
 
+struct mv88e6390_serdes_hw_stat {
+	char string[ETH_GSTRING_LEN];
+	int sizeof_stat;
+	int dev;
+	int reg;
+};
+
+static struct mv88e6390_serdes_hw_stat mv88e6390_serdes_hw_stats[] = {
+	{ "serdes_tx_packet_count", 48, 4, 0xF01B},
+	{ "serdes_tx_byte_count", 48, 4, 0xF01E},
+	{ "serdes_rx_packet_count", 48, 4, 0xF021},
+	{ "serdes_rx_byte_count", 48, 4, 0xF024},
+	{ "serdes_rx_packet_error_count", 48, 4, 0xF027},
+	{ "serdes_prbs_symbol_tx_count", 48, 4, 0xF031},
+	{ "serdes_prbs_symbol_rx_count", 48, 4, 0xF034},
+	{ "serdes_prbs_error_count", 48, 4, 0xF037},
+};
+
+int mv88e6390_serdes_get_sset_count(struct mv88e6xxx_chip *chip, int port)
+{
+	if (mv88e6390_port_has_serdes(chip, port))
+		return ARRAY_SIZE(mv88e6390_serdes_hw_stats);
+
+	return 0;
+}
+
+int mv88e6390_serdes_get_strings(struct mv88e6xxx_chip *chip,
+				 int port, uint8_t *data)
+{
+	struct mv88e6390_serdes_hw_stat *stat;
+	int i;
+
+	if (!mv88e6390_port_has_serdes(chip, port))
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(mv88e6390_serdes_hw_stats); i++) {
+		stat = &mv88e6390_serdes_hw_stats[i];
+		memcpy(data + i * ETH_GSTRING_LEN, stat->string,
+		       ETH_GSTRING_LEN);
+	}
+	return ARRAY_SIZE(mv88e6390_serdes_hw_stats);
+}
+
+static uint64_t mv88e6390_serdes_get_stat(struct mv88e6xxx_chip *chip, int lane,
+					  struct mv88e6390_serdes_hw_stat *stat)
+{
+	u64 val = 0;
+	u16 reg;
+	int err, i;
+
+	for (i = 0; i < (stat->sizeof_stat % 16); i++) {
+		err = mv88e6390_serdes_read(chip, lane, stat->dev, stat->reg, &reg);
+		if (err) {
+			dev_err(chip->dev, "failed to read statistic\n");
+			return 0;
+		}
+
+		val |= reg << (i * 16);
+	}
+	
+	return val;
+}
+
+static void mv88e6390_serdes_dump_reg(struct mv88e6xxx_chip *chip, int lane,
+				      int dev, int reg, const char *desc)
+{
+	u16 val;
+	int err = mv88e6390_serdes_read(chip, lane, dev, reg, &val);
+	if (err) {
+		pr_info("Can't read reg %04x dev %d\n", reg, dev);
+		return;
+	}
+
+	pr_info("Dev %d Reg 0x%04x : 0x%04x (%s)\n", dev, reg, val, desc);
+}
+
+static void mv88e6390_serdes_dump(struct mv88e6xxx_chip *chip, int port, int lane)
+{
+	mv88e6390_serdes_dump_reg(chip, lane, 4, 0x1001, "PCS status 1");
+	mv88e6390_serdes_dump_reg(chip, lane, 4, 0x1008, "PCS status 2");
+	mv88e6390_serdes_dump_reg(chip, lane, 4, 0x1018, "lane status");
+	mv88e6390_serdes_dump_reg(chip, lane, 4, 0x9006, "real time status register 2");
+	mv88e6390_serdes_dump_reg(chip, lane, 4, 0x9000, "10gbase x2/x4 control");
+}
+
+int mv88e6390_serdes_get_stats(struct mv88e6xxx_chip *chip, int port,
+			       uint64_t *data)
+{
+	struct mv88e6xxx_port *mv88e6xxx_port = &chip->ports[port];
+	struct mv88e6390_serdes_hw_stat *stat;
+	u64 value;
+	int i, lane;
+
+	if (!mv88e6390_port_has_serdes(chip, port))
+		return 0;
+
+	BUILD_BUG_ON(ARRAY_SIZE(mv88e6390_serdes_hw_stats) >
+		     ARRAY_SIZE(mv88e6xxx_port->serdes_stats));
+
+	lane = mv88e6390x_serdes_get_lane(chip, port);
+	if (lane < 0)
+		return 0;
+
+	for (i = 0; i < ARRAY_SIZE(mv88e6390_serdes_hw_stats); i++) {
+		stat = &mv88e6390_serdes_hw_stats[i];
+		value = mv88e6390_serdes_get_stat(chip, lane, stat);
+		mv88e6xxx_port->serdes_stats[i] += value;
+		data[i] = mv88e6xxx_port->serdes_stats[i];
+	}
+
+	/* TODO remove */
+	mv88e6390_serdes_dump(chip, port, lane);
+
+	return ARRAY_SIZE(mv88e6390_serdes_hw_stats);
+}
+
+
 /* Set the power on/off for 10GBASE-R and 10GBASE-X4/X2 */
 static int mv88e6390_serdes_power_10g(struct mv88e6xxx_chip *chip, int lane,
 				      bool on)
@@ -407,6 +539,8 @@ static int mv88e6390_serdes_power_10g(struct mv88e6xxx_chip *chip, int lane,
 
 	if (err)
 		return err;
+
+	pr_info("%s : Control 1 = %04x\n", __func__, val);
 
 	if (on)
 		new_val = val & ~(MV88E6390_PCS_CONTROL_1_RESET |

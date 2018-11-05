@@ -222,6 +222,9 @@ struct phy_device *fixed_phy_register(unsigned int irq,
 	phy->is_pseudo_fixed_link = true;
 
 	switch (status->speed) {
+	case SPEED_10000:
+		phy->supported = PHY_10GBIT_FEATURES;
+		break;
 	case SPEED_1000:
 		phy->supported = PHY_1000BT_FEATURES;
 		break;

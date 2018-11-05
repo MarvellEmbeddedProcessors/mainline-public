@@ -238,53 +238,119 @@
 			#address-cells = <1>;
 			#size-cells = <0>;
 
-			port@10 {
+			port10: port@10 {
 				reg = <0xa>;
 				label = "cpu";
 				ethernet = <&cp1_eth0>;
+				phy-mode = "rxaui";
+
+				fixed-link {
+					speed = <10000>;
+					full-duplex;
+				};
 			};
 
 			port@1 {
 				reg = <1>;
-				label = "wan";
-				phy-handle = <&switch0phy0>;
+				label = "lan1";
+				phy-handle = <&switch0port1>;
 			};
 
 			port@2 {
 				reg = <2>;
-				label = "lan0";
-				phy-handle = <&switch0phy1>;
+				label = "lan2";
+				phy-handle = <&switch0port2>;
 			};
 
 			port@3 {
 				reg = <3>;
-				label = "lan1";
-				phy-handle = <&switch0phy2>;
+				label = "lan3";
+				phy-handle = <&switch0port3>;
+			};
+			port@4 {
+				reg = <4>;
+				label = "lan4";
+				phy-handle = <&switch0port4>;
+			};
+
+			port@5 {
+				reg = <5>;
+				label = "lan5";
+				phy-handle = <&switch0port5>;
+			};
+
+			port@6 {
+				reg = <6>;
+				label = "lan6";
+				phy-handle = <&switch0port6>;
+			};
+
+			port@7 {
+				reg = <7>;
+				label = "lan7";
+				phy-handle = <&switch0port7>;
+			};
+
+			port@8 {
+				reg = <8>;
+				label = "lan8";
+				phy-handle = <&switch0port8>;
 			};
 
 		};
 
-		mdio {
+		mdio-bus {
 			#address-cells = <1>;
 			#size-cells = <0>;
-
-			switch0phy0: switch0phy0@1 {
-				reg = <0x1>;
+			switch0port1: switch0port@1 {
+				reg = <1>;
+				interrupt-parent = <&switch0>;
+				interrupts = <1 IRQ_TYPE_LEVEL_HIGH>;
 			};
-			switch0phy1: switch0phy1@2 {
-				reg = <0x2>;
+			switch0port2: switch0port@2 {
+				reg = <2>;
+				interrupt-parent = <&switch0>;
+				interrupts = <2 IRQ_TYPE_LEVEL_HIGH>;
 			};
-			switch0phy2: switch0phy2@3 {
-				reg = <0x3>;
+			switch0port3: switch0port@3 {
+				reg = <3>;
+				interrupt-parent = <&switch0>;
+				interrupts = <3 IRQ_TYPE_LEVEL_HIGH>;
 			};
-
-			switch0phy9: switch0phy9@10 {
-				reg = <0xa>;
-				phy-mode = "rxaui";
+			switch0port4: switch0port@4 {
+				reg = <4>;
+				interrupt-parent = <&switch0>;
+				interrupts = <4 IRQ_TYPE_LEVEL_HIGH>;
+			};
+			switch0port5: switch0port@5 {
+				reg = <5>;
+				interrupt-parent = <&switch0>;
+				interrupts = <5 IRQ_TYPE_LEVEL_HIGH>;
+			};
+			switch0port6: switch0port@6 {
+				reg = <6>;
+				interrupt-parent = <&switch0>;
+				interrupts = <6 IRQ_TYPE_LEVEL_HIGH>;
+			};
+			switch0port7: switch0port@7 {
+				reg = <7>;
+				interrupt-parent = <&switch0>;
+				interrupts = <7 IRQ_TYPE_LEVEL_HIGH>;
+			};
+			switch0port8: switch0port@8 {
+				reg = <8>;
+				interrupt-parent = <&switch0>;
+				interrupts = <8 IRQ_TYPE_LEVEL_HIGH>;
+			};
+			switch0port10: switch0port@10 {
+				reg = <10>;
+				interrupt-parent = <&switch0>;
+				interrupts = <10 IRQ_TYPE_LEVEL_HIGH>;
 			};
 		};
-
 	};
+	
+
 };
 
 &cp0_ethernet {
@@ -322,11 +388,10 @@
 
 &cp1_eth0 {
 	status = "okay";
-	manages = "in-band-status";
 
 	phy-mode = "rxaui";
 	phys = <&cp1_comphy4 0>, <&cp1_comphy5 0>;
-	//phy-handle = <&switch0phy9>;
+	//phy-handle = <&switch0port10>;
 	fixed-link {
 		speed = <10000>;
 		full-duplex;
@@ -338,11 +403,12 @@
 
 	phy-mode = "2500base-x";
 	phys = <&cp1_comphy3 2>;
-
+/*
 	fixed-link {
 		speed = <2500>;
 		full-duplex;
 	};
+	*/
 };
 
 

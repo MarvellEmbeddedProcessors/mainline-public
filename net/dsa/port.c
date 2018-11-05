@@ -73,6 +73,7 @@ int dsa_port_enable(struct dsa_port *dp, struct phy_device *phy)
 	struct dsa_switch *ds = dp->ds;
 	int port = dp->index;
 	int err;
+	pr_info("%s\n", __func__);
 
 	if (ds->ops->port_enable) {
 		err = ds->ops->port_enable(ds, port, phy);
@@ -285,11 +286,14 @@ static struct phy_device *dsa_port_get_phy_device(struct dsa_port *dp)
 	struct phy_device *phydev;
 
 	phy_dn = of_parse_phandle(dp->dn, "phy-handle", 0);
-	if (!phy_dn)
+	if (!phy_dn) {
+		pr_info("Can't find phandle from node %s\n", dp->dn->full_name);
 		return NULL;
+	}
 
 	phydev = of_phy_find_device(phy_dn);
 	if (!phydev) {
+		pr_info("Err getting phydev from phandle %s\n", phy_dn->full_name);
 		of_node_put(phy_dn);
 		return ERR_PTR(-EPROBE_DEFER);
 	}
@@ -304,25 +308,37 @@ static int dsa_port_setup_phy_of(struct dsa_port *dp, bool enable)
 	int port = dp->index;
 	int err = 0;
 
-	phydev = dsa_port_get_phy_device(dp);
-	if (!phydev)
-		return 0;
+	pr_info("%s\n", __func__);
 
-	if (IS_ERR(phydev))
+	phydev = dsa_port_get_phy_device(dp);
+	if (!phydev) {
+		pr_info("no phydev\n");
+		return 0;
+	}
+
+	if (IS_ERR(phydev)) {
+		pr_info("err phydev\n");
 		return PTR_ERR(phydev);
+	}
 
 	if (enable) {
 		err = genphy_config_init(phydev);
-		if (err < 0)
+		if (err < 0) {
+			pr_info("err at genphy_config_init\n");
 			goto err_put_dev;
+		}
 
 		err = genphy_resume(phydev);
-		if (err < 0)
+		if (err < 0) {
+			pr_info("err at genphy_resume\n");
 			goto err_put_dev;
+		}
 
 		err = genphy_read_status(phydev);
-		if (err < 0)
+		if (err < 0) {
+			pr_info("err at genphy_read_status\n");
 			goto err_put_dev;
+		}
 	} else {
 		err = genphy_suspend(phydev);
 		if (err < 0)
@@ -363,13 +379,15 @@ static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
 		mode = PHY_INTERFACE_MODE_NA;
 	phydev->interface = mode;
 
-	genphy_config_init(phydev);
-	genphy_read_status(phydev);
+	//genphy_config_init(phydev);
+	//genphy_read_status(phydev);
 
 	if (ds->ops->adjust_link)
 		ds->ops->adjust_link(ds, port, phydev);
 
 	put_device(&phydev->mdio.dev);
+
+	//dsa_port_enable(dp, phydev);
 
 	return 0;
 }

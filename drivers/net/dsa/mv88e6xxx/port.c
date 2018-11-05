@@ -357,6 +357,8 @@ int mv88e6390x_port_set_speed(struct mv88e6xxx_chip *chip, int port, int speed)
 	if (speed >= 2500 && port < 9)
 		return -EOPNOTSUPP;
 
+	pr_info("Set port %d speed to %d\n", port, speed);
+
 	return mv88e6xxx_port_set_speed(chip, port, speed, true, true);
 }
 
@@ -368,13 +370,13 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	u16 reg;
 	int err;
 
+	pr_info("%s : iface mode %d, port %d\n", __func__, mode, port);
+
 	if (mode == PHY_INTERFACE_MODE_NA)
 		return 0;
 
 	if (port != 9 && port != 10)
 		return -EOPNOTSUPP;
-
-	pr_info("%s\n", __func__);
 
 	switch (mode) {
 	case PHY_INTERFACE_MODE_1000BASEX:
@@ -422,6 +424,7 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 		err = mv88e6xxx_port_write(chip, port, MV88E6XXX_PORT_STS, reg);
 		if (err)
 			return err;
+		pr_info("Wrote 0x%x to port %d STS\n", reg, port);
 
 		err = mv88e6390_serdes_power(chip, port, true);
 		if (err)

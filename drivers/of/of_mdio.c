@@ -411,10 +411,15 @@ struct phy_device *of_phy_attach(struct net_device *dev,
 	struct phy_device *phy = of_phy_find_device(phy_np);
 	int ret;
 
-	if (!phy)
+	if (!phy) {
+		pr_info("No PHY found\n");
 		return NULL;
+	}
 
 	ret = phy_attach_direct(dev, phy, flags, iface);
+	if (ret) {
+		pr_info("Error in phy_attach_direct\n");
+	}
 
 	/* refcount is held by phy_attach_direct() on success */
 	put_device(&phy->mdio.dev);

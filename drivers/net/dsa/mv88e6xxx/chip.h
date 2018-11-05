@@ -193,7 +193,7 @@ struct mv88e6xxx_port_hwtstamp {
 struct mv88e6xxx_port {
 	struct mv88e6xxx_chip *chip;
 	int port;
-	u64 serdes_stats[2];
+	u64 serdes_stats[20];
 	u64 atu_member_violation;
 	u64 atu_miss_violation;
 	u64 atu_full_violation;

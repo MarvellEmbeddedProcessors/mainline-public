@@ -257,6 +257,7 @@ static int phylink_parse_mode(struct phylink *pl, struct fwnode_handle *fwnode)
 			break;
 
 		case PHY_INTERFACE_MODE_10GKR:
+		case PHY_INTERFACE_MODE_RXAUI:
 			phylink_set(pl->supported, 10baseT_Half);
 			phylink_set(pl->supported, 10baseT_Full);
 			phylink_set(pl->supported, 100baseT_Half);
@@ -759,6 +760,7 @@ int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn,
 	struct device_node *phy_node;
 	struct phy_device *phy_dev;
 	int ret;
+	pr_info("%s\n", __func__);
 
 	/* Fixed links and 802.3z are handled without needing a PHY */
 	if (pl->link_an_mode == MLO_AN_FIXED ||
@@ -767,8 +769,10 @@ int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn,
 		return 0;
 
 	phy_node = of_parse_phandle(dn, "phy-handle", 0);
-	if (!phy_node)
+	if (!phy_node) {
+		pr_info("%s : No phy-handle node\n", __func__);
 		phy_node = of_parse_phandle(dn, "phy", 0);
+	}
 	if (!phy_node)
 		phy_node = of_parse_phandle(dn, "phy-device", 0);
 
@@ -778,13 +782,16 @@ int phylink_of_phy_connect(struct phylink *pl, struct device_node *dn,
 		return 0;
 	}
 
+	pr_info("Attaching PHY\n");
 	phy_dev = of_phy_attach(pl->netdev, phy_node, flags,
 				pl->link_interface);
 	/* We're done with the phy_node handle */
 	of_node_put(phy_node);
 
-	if (!phy_dev)
+	if (!phy_dev) {
+		pr_info("Failed to attach PHY\n");
 		return -ENODEV;
+	}
 
 	ret = phylink_bringup_phy(pl, phy_dev);
 	if (ret)
