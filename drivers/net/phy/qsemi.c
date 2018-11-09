@@ -116,7 +116,6 @@ static struct phy_driver qs6612_driver[] = { {
 	.name		= "QS6612",
 	.phy_id_mask	= 0xfffffff0,
 	.features	= PHY_BASIC_FEATURES,
-	.flags		= PHY_HAS_INTERRUPT,
 	.config_init	= qs6612_config_init,
 	.config_aneg	= genphy_config_aneg,
 	.read_status	= genphy_read_status,
