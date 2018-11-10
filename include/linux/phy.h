@@ -451,9 +451,8 @@ struct phy_device {
 	/* See ethtool.h for more info */
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(supported);
 	__ETHTOOL_DECLARE_LINK_MODE_MASK(advertising);
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(lp_advertising);
 
-
-	u32 lp_advertising;
 
 	/* Energy efficient ethernet modes which should be prohibited */
 	u32 eee_broken_modes;

@@ -360,9 +360,7 @@ void phy_ethtool_ksettings_get(struct phy_device *phydev,
 {
 	linkmode_copy(cmd->link_modes.supported, phydev->supported);
 	linkmode_copy(cmd->link_modes.advertising, phydev->advertising);
-
-	ethtool_convert_legacy_u32_to_link_mode(cmd->link_modes.lp_advertising,
-						phydev->lp_advertising);
+	linkmode_copy(cmd->link_modes.lp_advertising, phydev->lp_advertising);
 
 	cmd->base.speed = phydev->speed;
 	cmd->base.duplex = phydev->duplex;
@@ -489,7 +487,7 @@ static int phy_start_aneg_priv(struct phy_device *phydev, bool sync)
 		phy_sanitize_settings(phydev);
 
 	/* Invalidate LP advertising flags */
-	phydev->lp_advertising = 0;
+	linkmode_zero(phydev->lp_advertising);
 
 	err = phydev->drv->config_aneg(phydev);
 	if (err < 0)

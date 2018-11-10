@@ -1643,7 +1643,7 @@ int genphy_read_status(struct phy_device *phydev)
 	if (err)
 		return err;
 
-	phydev->lp_advertising = 0;
+	linkmode_zero(phydev->lp_advertising);
 
 	if (AUTONEG_ENABLE == phydev->autoneg) {
 		if (linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
@@ -1658,8 +1658,8 @@ int genphy_read_status(struct phy_device *phydev)
 			if (adv < 0)
 				return adv;
 
-			phydev->lp_advertising =
-				mii_stat1000_to_ethtool_lpa_t(lpagb);
+			mii_stat1000_to_linkmode_lpa_t(phydev->lp_advertising,
+						       lpagb);
 			common_adv_gb = lpagb & adv << 2;
 		}
 
@@ -1667,7 +1667,7 @@ int genphy_read_status(struct phy_device *phydev)
 		if (lpa < 0)
 			return lpa;
 
-		phydev->lp_advertising |= mii_lpa_to_ethtool_lpa_t(lpa);
+		mii_lpa_to_linkmode_lpa_t(phydev->lp_advertising, lpa);
 
 		adv = phy_read(phydev, MII_ADVERTISE);
 		if (adv < 0)
