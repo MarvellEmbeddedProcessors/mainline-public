@@ -97,6 +97,8 @@
 #define     MVPP2_CLS_FLOW_TBL0_ENG(x)		((x) << 1)
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID_MASK	0xff
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID(port)	((port) << 4)
+#define     MVPP2_CLS_FLOW_TBL0_VLAN_MASK	0x7
+#define     MVPP2_CLS_FLOW_TBL0_VLAN(x)		((x) << 16)
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID_SEL	BIT(23)
 #define MVPP2_CLS_FLOW_TBL1_REG			0x1828
 #define     MVPP2_CLS_FLOW_TBL1_N_FIELDS_MASK	0x7
@@ -126,6 +128,19 @@
 #define MVPP22_CLS_C2_TCAM_DATA4		0x1b20
 #define     MVPP22_CLS_C2_LU_TYPE(lu)		((lu) & 0x3f)
 #define     MVPP22_CLS_C2_PORT_ID(port)		((port) << 8)
+#define MVPP22_CLS_C2_ACT_TABLE			0x1b30
+#define MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL	BIT(10)
+#define MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL	BIT(9)
+#define MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL	BIT(7)
+#define MVPP22_CLS_C2_ACT_TABLE_DSCP_SEL	BIT(6)
+#define MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(tbl)	((tbl) & 0x3f)
+#define MVPP22_CLS_QOS_IDX			0x1b40
+#define	    MVPP22_CLS_QOS_TBL_NO(no)		(((no) & 0x3f) << 8)
+#define     MVPP22_CLS_QOS_DSCP_SEL		BIT(6)
+#define     MVPP22_CLS_QOS_PRI_IDX(idx) 	((idx) & 0x7)
+#define MVPP22_CLS_QOS				0x1b44
+#define     MVPP22_CLS_QOS_RXQ(rxq)		(((rxq) & 0xff) << 24)
+#define     MVPP22_CLS_QOS_PRI(pri)		((pri) & 0x7)
 #define MVPP22_CLS_C2_HIT_CTR			0x1b50
 #define MVPP22_CLS_C2_ACT			0x1b60
 #define     MVPP22_CLS_C2_ACT_RSS_EN(act)	(((act) & 0x3) << 19)
@@ -612,6 +627,10 @@
 /* RSS constants */
 #define MVPP22_RSS_TABLE_ENTRIES	32
 
+/* QoS constants */
+#define MVPP22_QOS_N_ENTRIES		8
+#define MVPP22_QOS_NO_ENTRY		(-1)
+
 /* IPv6 max L3 address size */
 #define MVPP2_MAX_L3_ADDR_SIZE		16
 
@@ -872,6 +891,9 @@ struct mvpp2_port {
 
 	/* RSS indirection table */
 	u32 indir[MVPP22_RSS_TABLE_ENTRIES];
+
+	/* VLAN Prio-based QoS table */
+	s16 qos[MVPP22_QOS_N_ENTRIES];
 };
 
 /* The mvpp2_tx_desc and mvpp2_rx_desc structures describe the

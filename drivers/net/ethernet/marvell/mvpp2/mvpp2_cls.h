@@ -79,6 +79,17 @@ enum mvpp2_cls_flow_seq {
 	MVPP2_CLS_FLOW_SEQ_MIDDLE
 };
 
+enum mvpp22_cls_flow_tag {
+	MVPP22_CLS_FLOW_VLAN_ALWAYS_EXEC = 0,	/* Always execute the lookup */
+	MVPP22_CLS_FLOW_VLAN_TAGGED1,		/* Exec if 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED2,		/* Exec if 2 tags */
+	MVPP22_CLS_FLOW_VLAN_TAGGED3,		/* Exec if 3 tags */
+	MVPP22_CLS_FLOW_VLAN_UNTAGGED,		/* Exec if no tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED,		/* Exec if at least 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED01,		/* Exec if 0 or 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED23		/* Exec if 2 or 3 tags */
+};
+
 /* Classifier C2 engine constants */
 #define MVPP22_CLS_C2_TCAM_EN(data)		((data) << 16)
 
@@ -105,14 +116,47 @@ enum mvpp22_cls_c2_fwd_action {
 
 struct mvpp2_cls_c2_entry {
 	u32 index;
+	/* TCAM lookup key */
 	u32 tcam[MVPP2_CLS_C2_TCAM_WORDS];
+	/* QoS table lookup configuration */
+	u32 act_table;
+	/* Actions to perform upon TCAM match */
 	u32 act;
+	/* Attributes relative to the actions to perform */
 	u32 attr[MVPP2_CLS_C2_ATTR_WORDS];
 };
 
 /* Classifier C2 engine entries */
-#define MVPP22_CLS_C2_RSS_ENTRY(port)	(port)
-#define MVPP22_CLS_C2_N_ENTRIES		MVPP2_MAX_PORTS
+#define MVPP22_CLS_C2_N_ENTRIES		256
+#define MVPP22_CLS_C2_RSS_ENTRY(port)	(MVPP22_CLS_C2_N_ENTRIES - 1 - port)
+#define MVPP22_CLS_C2_QOS_ENTRY(port)	(MVPP22_CLS_C2_N_ENTRIES - 5 - port)
+
+/* C2 TCAM Layout :
+ *
+ * +----------------------------------------------------------------------------
+ * | 0 - 247 : Unused. Must be zeroed and invalidated.
+ * |
+ * +----------------------------------------------------------------------------
+ * |  248 - 251 : QoS control entries. LU TYPE = CLS_LU_QOS
+ * |
+ * | QoS entries : One per port. It matches if there's a VLAN tag and if
+ * | we enabled QoS flow steering by adding at least one flow that matches
+ * | the VLAN prio bits in the VLAN tag. This takes precedence over RSS.
+ * |
+ * | Each entry is configured to :
+ * | - Select the QoS table to use
+ * | - Ask the C2 engine to perform a QoS lookup
+ * | - Ask the C2 engine to use the returned rxq as the destination rxq for the
+ * |   packet.
+ * +----------------------------------------------------------------------------
+ * | 252 - 255 : RSS control entries. LU_TYPE = CLS_LU_RSS
+ * |
+ * | RSS entries : One per port. It always matches, provided that there wasn't
+ * | a match in the previous entries that uses the CLS_LU_NORMAL type.
+ * | It configures the classifier to forward the packet to CPU, and perform or
+ * | not a RSS lookup.
+ * +----------------------------------------------------------------------------
+ */
 
 /* RSS flow entries in the flow table. We have 2 entries per port for RSS.
  *
@@ -164,6 +208,7 @@ enum mvpp2_prs_flow {
 
 enum mvpp2_cls_lu_type {
 	MVPP2_CLS_LU_RSS = 0,
+	MVPP2_CLS_LU_QOS,
 };
 
 /* LU Type defined for all engines, and specified in the flow table */
@@ -186,13 +231,11 @@ struct mvpp2_cls_flow {
 	struct mvpp2_prs_result_info prs_ri;
 };
 
-
-#define MVPP2_ENTRIES_PER_FLOW			(MVPP2_MAX_PORTS + 1)
-#define MVPP2_FLOW_C2_ENTRY(id)			((((id) - MVPP2_FL_START) * \
-						 MVPP2_ENTRIES_PER_FLOW) + 1)
-#define MVPP2_PORT_FLOW_HASH_ENTRY(port, id)	(MVPP2_FLOW_C2_ENTRY(id) + \
-						 1 + (port))
-
+#define MVPP2_ENTRIES_PER_FLOW			(MVPP2_MAX_PORTS + 2)
+#define MVPP2_FLOW_C2_QOS_ENTRY(id)		(((id) - MVPP2_FL_START) * MVPP2_ENTRIES_PER_FLOW)
+#define MVPP2_FLOW_C2_RSS_ENTRY(id)		(MVPP2_FLOW_C2_QOS_ENTRY(id) + 1)
+#define MVPP2_PORT_FLOW_HASH_ENTRY(port, id)	((id) * MVPP2_ENTRIES_PER_FLOW + \
+						(port) + MVPP2_FLOW_C2_RSS_ENTRY(id))
 struct mvpp2_cls_flow_entry {
 	u32 index;
 	u32 data[MVPP2_CLS_FLOWS_TBL_DATA_WORDS];
@@ -240,5 +283,11 @@ u32 mvpp2_cls_c2_hit_count(struct mvpp2 *priv, int c2_index);
 
 void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 		       struct mvpp2_cls_c2_entry *c2);
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
+
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
 
 #endif
