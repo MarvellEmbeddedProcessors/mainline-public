@@ -5,6 +5,7 @@ config ALPHA
 	select ARCH_MIGHT_HAVE_PC_PARPORT
 	select ARCH_MIGHT_HAVE_PC_SERIO
 	select ARCH_USE_CMPXCHG_LOCKREF
+	select FORCE_PCI if !ALPHA_JENSEN
 	select HAVE_AOUT
 	select HAVE_IDE
 	select HAVE_OPROFILE
@@ -12,6 +13,7 @@ config ALPHA
 	select HAVE_PERF_EVENTS
 	select VIRT_TO_BUS
 	select GENERIC_IRQ_PROBE
+	select GENERIC_PCI_IOMAP if PCI
 	select AUTO_IRQ_AFFINITY if SMP
 	select GENERIC_IRQ_SHOW
 	select ARCH_WANT_IPC_PARSE_VERSION
@@ -324,17 +326,6 @@ config ISA
 config ISA_DMA_API
 	bool
 	default y
-
-config PCI
-	bool
-	depends on !ALPHA_JENSEN
-	select GENERIC_PCI_IOMAP
-	default y
-	help
-	  Find out whether you have a PCI motherboard. PCI is the name of a
-	  bus system, i.e. the way the CPU talks to the other stuff inside
-	  your box. Other bus systems are ISA, EISA, MicroChannel (MCA) or
-	  VESA. If you have PCI, say Y, otherwise N.
 
 config PCI_DOMAINS
 	bool
@@ -697,7 +688,6 @@ config HZ
 	default 1200 if HZ_1200
 	default 1024
 
-source "drivers/pci/Kconfig"
 source "drivers/eisa/Kconfig"
 
 source "drivers/pcmcia/Kconfig"

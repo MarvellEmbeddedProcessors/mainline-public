@@ -13,7 +13,7 @@ config EP405
 	depends on 40x
 	default n
 	select 405GP
-	select PCI
+	select FORCE_PCI
 	help
 	  This option enables support for the EP405/EP405PC boards.
 
@@ -22,7 +22,7 @@ config HOTFOOT
 	depends on 40x
 	default n
 	select PPC40x_SIMPLE
-	select PCI
+	select FORCE_PCI
         help
 	 This option enables support for the ESTEEM 195E Hotfoot board.
 
@@ -33,6 +33,7 @@ config KILAUEA
 	select 405EX
 	select PPC40x_SIMPLE
 	select PPC4xx_PCI_EXPRESS
+	select FORCE_PCI
 	select PCI_MSI
 	select PPC4xx_MSI
 	help
@@ -43,7 +44,7 @@ config MAKALU
 	depends on 40x
 	default n
 	select 405EX
-	select PCI
+	select FORCE_PCI
 	select PPC4xx_PCI_EXPRESS
 	select PPC40x_SIMPLE
 	help
@@ -54,7 +55,7 @@ config WALNUT
 	depends on 40x
 	default y
 	select 405GP
-	select PCI
+	select FORCE_PCI
 	select OF_RTC
 	help
 	  This option enables support for the IBM PPC405GP evaluation board.
