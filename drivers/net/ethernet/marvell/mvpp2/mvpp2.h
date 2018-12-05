@@ -601,22 +601,20 @@
 #define MVPP2_TX_DESC_ALIGN		(MVPP2_DESC_ALIGNED_SIZE - 1)
 
 /* RX FIFO constants */
+#define MVPP2_RX_FIFO_TOTAL_DATA_SIZE_KB	0xc000 /* 48kB */
 #define MVPP2_RX_FIFO_PORT_DATA_SIZE_32KB	0x8000
-#define MVPP2_RX_FIFO_PORT_DATA_SIZE_8KB	0x2000
 #define MVPP2_RX_FIFO_PORT_DATA_SIZE_4KB	0x1000
+#define MVPP2_RX_FIFO_PORT_ATTR_SIZE(data_sz)	(data_sz >> 6)
 #define MVPP2_RX_FIFO_PORT_ATTR_SIZE_32KB	0x200
-#define MVPP2_RX_FIFO_PORT_ATTR_SIZE_8KB	0x80
 #define MVPP2_RX_FIFO_PORT_ATTR_SIZE_4KB	0x40
 #define MVPP2_RX_FIFO_PORT_MIN_PKT		0x80
 
 /* TX FIFO constants */
-#define MVPP22_TX_FIFO_DATA_SIZE_10KB		0xa
-#define MVPP22_TX_FIFO_DATA_SIZE_3KB		0x3
-#define MVPP2_TX_FIFO_THRESHOLD_MIN		256
-#define MVPP2_TX_FIFO_THRESHOLD_10KB	\
-	(MVPP22_TX_FIFO_DATA_SIZE_10KB * 1024 - MVPP2_TX_FIFO_THRESHOLD_MIN)
-#define MVPP2_TX_FIFO_THRESHOLD_3KB	\
-	(MVPP22_TX_FIFO_DATA_SIZE_3KB * 1024 - MVPP2_TX_FIFO_THRESHOLD_MIN)
+#define MVPP22_TX_FIFO_TOTAL_SIZE_KB		19
+#define MVPP22_TX_FIFO_DATA_SIZE_10KB		10
+#define MVPP2_TX_FIFO_THRESHOLD_MIN		256 /* Bytes */
+#define MVPP2_TX_FIFO_THRESHOLD(kb)	\
+		(kb * 1024 - MVPP2_TX_FIFO_THRESHOLD_MIN)
 
 /* RX buffer constants */
 #define MVPP2_SKB_SHINFO_SIZE \
@@ -776,10 +774,6 @@ struct mvpp2 {
 	struct clk *mg_core_clk;
 	struct clk *axi_clk;
 
-	/* List of pointers to port structures */
-	int port_count;
-	struct mvpp2_port *port_list[MVPP2_MAX_PORTS];
-
 	/* Number of Tx threads used */
 	unsigned int nthreads;
 	/* Map of threads needing locking */
@@ -813,6 +807,11 @@ struct mvpp2 {
 	struct dentry *dbgfs_dir;
 
 	bool custom_dma_mask;
+
+	/* List of pointers to port structures. Map DTS-active ports */
+	int port_count;
+	struct mvpp2_port *port_list[MVPP2_MAX_PORTS];
+	u32 port_map;
 };
 
 struct mvpp2_pcpu_stats {

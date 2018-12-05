@@ -6030,52 +6030,86 @@ static void mvpp2_rx_fifo_init(struct mvpp2 *priv)
 static void mvpp22_rx_fifo_init(struct mvpp2 *priv)
 {
 	int port;
+	u32 data_sz, attr_sz;
+	u32 port_map;
+	int remind_port_cnt;
+	int remind_size = MVPP2_RX_FIFO_TOTAL_DATA_SIZE_KB;
+
+	/* The last port is Loopback and don't need FIFO */
+	port_map = priv->port_map & ~BIT(MVPP2_MAX_PORTS - 1);
+	remind_port_cnt = hweight_long(port_map);
 
 	/* The FIFO size parameters are set depending on the maximum speed a
 	 * given port can handle:
 	 * - Port 0: 10Gbps
 	 * - Port 1: 2.5Gbps
 	 * - Ports 2 and 3: 1Gbps
+	 * Divide 48kB FIFO only amongst DTS-active ports (max-active <= 3)
 	 */
+	for (port = 0; port < MVPP2_MAX_PORTS; port++) {
+		if (!(port_map & BIT(port))) {
+			data_sz = 0;
+			goto set_hw;
+		}
 
-	mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(0),
-		    MVPP2_RX_FIFO_PORT_DATA_SIZE_32KB);
-	mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(0),
-		    MVPP2_RX_FIFO_PORT_ATTR_SIZE_32KB);
+		if (remind_port_cnt == 1) {
+			data_sz = remind_size;
+		} else {
+			if (port == 0)
+				data_sz = MVPP2_RX_FIFO_PORT_DATA_SIZE_32KB;
+			else
+				data_sz = remind_size / remind_port_cnt;
+		}
+		remind_size -= data_sz;
+		remind_port_cnt--;
+set_hw:
+		attr_sz = MVPP2_RX_FIFO_PORT_ATTR_SIZE(data_sz);
+		mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(port), data_sz);
+		mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(port), attr_sz);
 
-	mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(1),
-		    MVPP2_RX_FIFO_PORT_DATA_SIZE_8KB);
-	mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(1),
-		    MVPP2_RX_FIFO_PORT_ATTR_SIZE_8KB);
 
-	for (port = 2; port < MVPP2_MAX_PORTS; port++) {
-		mvpp2_write(priv, MVPP2_RX_DATA_FIFO_SIZE_REG(port),
-			    MVPP2_RX_FIFO_PORT_DATA_SIZE_4KB);
-		mvpp2_write(priv, MVPP2_RX_ATTR_FIFO_SIZE_REG(port),
-			    MVPP2_RX_FIFO_PORT_ATTR_SIZE_4KB);
 	}
-
 	mvpp2_write(priv, MVPP2_RX_MIN_PKT_SIZE_REG,
 		    MVPP2_RX_FIFO_PORT_MIN_PKT);
 	mvpp2_write(priv, MVPP2_RX_FIFO_INIT_REG, 0x1);
 }
 
 /* Initialize Tx FIFO's: the total FIFO size is 19kB on PPv2.2 and 10G
- * interfaces must have a Tx FIFO size of 10kB. As only port 0 can do 10G,
- * configure its Tx FIFO size to 10kB and the others ports Tx FIFO size to 3kB.
+ * interfaces must have a Tx FIFO size of 10kB. Divide FIFO only amongst
+ * DTS-active ports. Typical 19kB dividing:
+ *  one 10G port + two slow ports on board - 10kB / 4kB / 5kB
+ *  one 10G port + one slow port  on board - 10kB / 9kB
+ *  one 10G port,  no slow ports  on board - 19kB
  */
 static void mvpp22_tx_fifo_init(struct mvpp2 *priv)
 {
 	int port, size, thrs;
+	u32 port_map;
+	int remind_port_cnt;
+	int remind_size = MVPP22_TX_FIFO_TOTAL_SIZE_KB;
+
+	/* The last port is Loopback and don't need FIFO */
+	port_map = priv->port_map & ~BIT(MVPP2_MAX_PORTS - 1);
+	remind_port_cnt = hweight_long(port_map);
 
 	for (port = 0; port < MVPP2_MAX_PORTS; port++) {
-		if (port == 0) {
-			size = MVPP22_TX_FIFO_DATA_SIZE_10KB;
-			thrs = MVPP2_TX_FIFO_THRESHOLD_10KB;
-		} else {
-			size = MVPP22_TX_FIFO_DATA_SIZE_3KB;
-			thrs = MVPP2_TX_FIFO_THRESHOLD_3KB;
+		if (!(port_map & BIT(port))) {
+			size = 0;
+			goto set_hw;
 		}
+
+		if (remind_port_cnt == 1) {
+			size = remind_size;
+		} else {
+			if (port == 0)
+				size = MVPP22_TX_FIFO_DATA_SIZE_10KB;
+			else
+				size = remind_size / remind_port_cnt;
+		}
+		remind_size -= size;
+		remind_port_cnt--;
+set_hw:
+		thrs = MVPP2_TX_FIFO_THRESHOLD(size);
 		mvpp2_write(priv, MVPP22_TX_FIFO_SIZE_REG(port), size);
 		mvpp2_write(priv, MVPP22_TX_FIFO_THRESH_REG(port), thrs);
 	}
@@ -6407,6 +6441,12 @@ static int mvpp2_probe(struct platform_device *pdev)
 	if (dev_of_node(&pdev->dev))
 		of_reserved_mem_device_init_by_idx(&pdev->dev,
 						   pdev->dev.of_node, 0);
+
+	/* Map DTS-active ports. Should be done before FIFO mvpp2_init */
+	fwnode_for_each_available_child_node(fwnode, port_fwnode) {
+		if (!fwnode_property_read_u32(port_fwnode, "port-id", &i))
+			priv->port_map |= BIT(i);
+	}
 
 	/* Initialize network controller */
 	err = mvpp2_init(pdev, priv);
