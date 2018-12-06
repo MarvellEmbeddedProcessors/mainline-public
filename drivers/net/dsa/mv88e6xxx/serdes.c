@@ -159,10 +159,10 @@ static int mv88e6390_serdes_port9(struct mv88e6xxx_chip *chip, u8 cmode,
 	switch (cmode) {
 	case MV88E6XXX_PORT_STS_CMODE_1000BASE_X:
 	case MV88E6XXX_PORT_STS_CMODE_SGMII:
+	case MV88E6XXX_PORT_STS_CMODE_2500BASEX:
 		return mv88e6390_serdes_sgmii(chip, MV88E6390_PORT9_LANE0, on);
 	case MV88E6XXX_PORT_STS_CMODE_XAUI:
 	case MV88E6XXX_PORT_STS_CMODE_RXAUI:
-	case MV88E6XXX_PORT_STS_CMODE_2500BASEX:
 		return mv88e6390_serdes_10g(chip, MV88E6390_PORT9_LANE0, on);
 	}
 
@@ -174,11 +174,12 @@ static int mv88e6390_serdes_port10(struct mv88e6xxx_chip *chip, u8 cmode,
 {
 	switch (cmode) {
 	case MV88E6XXX_PORT_STS_CMODE_SGMII:
-		return mv88e6390_serdes_sgmii(chip, MV88E6390_PORT10_LANE0, on);
-	case MV88E6XXX_PORT_STS_CMODE_XAUI:
-	case MV88E6XXX_PORT_STS_CMODE_RXAUI:
 	case MV88E6XXX_PORT_STS_CMODE_1000BASE_X:
 	case MV88E6XXX_PORT_STS_CMODE_2500BASEX:
+		return mv88e6390_serdes_sgmii(chip, MV88E6390_PORT10_LANE0, on);
+
+	case MV88E6XXX_PORT_STS_CMODE_XAUI:
+	case MV88E6XXX_PORT_STS_CMODE_RXAUI:
 		return mv88e6390_serdes_10g(chip, MV88E6390_PORT10_LANE0, on);
 	}
 
