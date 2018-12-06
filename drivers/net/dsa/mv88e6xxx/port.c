@@ -322,7 +322,7 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	int err;
 
 	if (mode == PHY_INTERFACE_MODE_NA)
-		return 0;
+		mode = PHY_INTERFACE_MODE_RXAUI;
 
 	if (port != 9 && port != 10)
 		return -EOPNOTSUPP;
