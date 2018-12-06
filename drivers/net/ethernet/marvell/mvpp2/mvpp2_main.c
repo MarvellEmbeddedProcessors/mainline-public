@@ -5215,6 +5215,10 @@ static int mvpp2_port_init(struct mvpp2_port *port)
 	unsigned int thread;
 	int queue, err;
 
+	u32 reg = mvpp2_read(priv, MVPP2_MH_REG(port->id));
+	reg = BIT(4);
+	mvpp2_write(priv, MVPP2_MH_REG(port->id), reg);
+
 	/* Checks for hardware constraints */
 	if (port->first_rxq + port->nrxqs >
 	    MVPP2_MAX_PORTS * priv->max_port_rxqs)
