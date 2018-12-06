@@ -250,6 +250,10 @@ static int mvebu_comphy_power_on(struct phy *phy)
 		ret = data->comphy_smc(MV_SIP_COMPHY_POWER_ON, priv->phys,
 				 lane->id,
 				 COMPHY_FW_MODE_FORMAT(COMPHY_RXAUI_MODE));
+
+		ret = data->comphy_smc(MV_SIP_COMPHY_POWER_ON, priv->phys,
+				 lane->id + 1,
+				 COMPHY_FW_MODE_FORMAT(COMPHY_RXAUI_MODE));
 		break;
 	case PHY_MODE_USB_HOST:
 		ret = data->comphy_smc(MV_SIP_COMPHY_POWER_ON, priv->phys,
