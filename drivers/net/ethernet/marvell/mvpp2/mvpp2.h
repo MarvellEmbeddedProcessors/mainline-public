@@ -868,6 +868,7 @@ struct mvpp2_port {
 	int gop_id;
 
 	int link_irq;
+	bool link_status;
 
 	struct mvpp2 *priv;
 

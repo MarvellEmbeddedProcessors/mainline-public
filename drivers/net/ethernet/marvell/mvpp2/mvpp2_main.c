@@ -2703,25 +2703,23 @@ static irqreturn_t mvpp2_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
-/* Per-port interrupt for link status changes */
-static irqreturn_t mvpp2_link_status_isr(int irq, void *dev_id)
+static inline void mvpp2_link_status(struct mvpp2_port *port, bool *event,
+				     bool *link)
 {
-	struct mvpp2_port *port = (struct mvpp2_port *)dev_id;
-	struct net_device *dev = port->dev;
-	bool event = false, link = false;
 	u32 val;
 
-	mvpp22_gop_mask_irq(port);
+	*event = false;
+	*link = false;
 
 	if (port->gop_id == 0 &&
 	    (port->phy_interface == PHY_INTERFACE_MODE_10GKR ||
 	     port->phy_interface == PHY_INTERFACE_MODE_RXAUI)) {
 		val = readl(port->base + MVPP22_XLG_INT_STAT);
 		if (val & MVPP22_XLG_INT_STAT_LINK) {
-			event = true;
+			*event = true;
 			val = readl(port->base + MVPP22_XLG_STATUS);
 			if (val & MVPP22_XLG_STATUS_LINK_UP)
-				link = true;
+				*link = true;
 		}
 	} else if (phy_interface_mode_is_rgmii(port->phy_interface) ||
 		   port->phy_interface == PHY_INTERFACE_MODE_SGMII ||
@@ -2729,12 +2727,25 @@ static irqreturn_t mvpp2_link_status_isr(int irq, void *dev_id)
 		   port->phy_interface == PHY_INTERFACE_MODE_2500BASEX) {
 		val = readl(port->base + MVPP22_GMAC_INT_STAT);
 		if (val & MVPP22_GMAC_INT_STAT_LINK) {
-			event = true;
+			*event = true;
 			val = readl(port->base + MVPP2_GMAC_STATUS0);
 			if (val & MVPP2_GMAC_STATUS0_LINK_UP)
-				link = true;
+				*link = true;
 		}
 	}
+}
+
+/* Per-port interrupt for link status changes */
+static irqreturn_t mvpp2_link_status_isr(int irq, void *dev_id)
+{
+	struct mvpp2_port *port = (struct mvpp2_port *)dev_id;
+	struct net_device *dev = port->dev;
+	bool event, link;
+
+	mvpp22_gop_mask_irq(port);
+
+	mvpp2_link_status(port, &event, &link);
+	port->link_status = link;
 
 	if (!netif_running(dev) || !event)
 		goto handled;
@@ -5649,6 +5660,8 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 			     const struct phylink_link_state *state)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
+	struct mvpp2 *priv = port->priv;
+	bool event, link;
 
 	/* Check for invalid configuration */
 	if (state->interface == PHY_INTERFACE_MODE_10GKR && port->gop_id != 0) {
@@ -5656,16 +5669,14 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 		return;
 	}
 
-	/* Mac-config is called on UP-request. Don't repeat if already UP */
-	if (state->link && netif_carrier_ok(dev) && port->has_phy)
-		return;
-
 	mvpp2_tx_stop_all_queues(port->dev);
+	if (priv->hw_version == MVPP22 && port->link_irq && !port->has_phy)
+		mvpp22_gop_mask_irq(port);
 
 	/* Make sure the port is disabled when reconfiguring the mode */
 	mvpp2_port_disable(port);
 
-	if (port->priv->hw_version != MVPP21 &&
+	if (priv->hw_version == MVPP22 &&
 	    port->phy_interface != state->interface) {
 		port->phy_interface = state->interface;
 
@@ -5684,11 +5695,30 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 		 state->interface == PHY_INTERFACE_MODE_2500BASEX)
 		mvpp2_gmac_config(port, mode, state);
 
-	if (port->priv->hw_version == MVPP21 && port->flags & MVPP2_F_LOOPBACK)
+	if (priv->hw_version == MVPP21 && port->flags & MVPP2_F_LOOPBACK)
 		mvpp2_port_loopback_set(port, state);
 
 	mvpp2_port_enable(port);
 	mvpp2_tx_wake_all_queues(dev);
+
+	if (priv->hw_version == MVPP22 && port->link_irq && !port->has_phy &&
+	    phylink_autoneg_inband(mode)) {
+		/* Configuring and enabling the port triggers a link interrupt.
+		 * Calling mvpp2_link_status() makes sure the interrupt is
+		 * cleared so that we do not end up in an interrupt loop
+		 * (IRQ -> mac_config -> IRQ -> mac_config ...).
+		 */
+		mvpp2_link_status(port, &event, &link);
+		/* To avoid missing a link interrupt, we check the event against
+		 * the current known link state and act accordingly.
+		 */
+		if (event && (link != port->link_status)) {
+			port->link_status = link;
+			phylink_mac_change(port->phylink, link);
+		}
+
+		mvpp22_gop_unmask_irq(port);
+	}
 }
 
 static void mvpp2_mac_link_up(struct net_device *dev, unsigned int mode,
