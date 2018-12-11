@@ -2736,13 +2736,13 @@ static irqreturn_t mvpp2_link_status_isr(int irq, void *dev_id)
 		}
 	}
 
+	if (!netif_running(dev) || !event)
+		goto handled;
+
 	if (port->phylink) {
 		phylink_mac_change(port->phylink, link);
 		goto handled;
 	}
-
-	if (!netif_running(dev) || !event)
-		goto handled;
 
 	if (link) {
 		mvpp2_interrupts_enable(port);
