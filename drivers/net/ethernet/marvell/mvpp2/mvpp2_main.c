@@ -5669,20 +5669,23 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 		return;
 	}
 
-	mvpp2_tx_stop_all_queues(port->dev);
 	if (priv->hw_version == MVPP22 && port->link_irq && !port->has_phy)
 		mvpp22_gop_mask_irq(port);
 
-	/* Make sure the port is disabled when reconfiguring the mode */
-	mvpp2_port_disable(port);
-
 	if (priv->hw_version == MVPP22 &&
 	    port->phy_interface != state->interface) {
+		/* Make sure the port is disabled when reconfiguring the mode */
+		mvpp2_tx_stop_all_queues(port->dev);
+		mvpp2_port_disable(port);
+
 		port->phy_interface = state->interface;
 
 		/* Reconfigure the serdes lanes */
 		phy_power_off(port->comphy);
 		mvpp22_mode_reconfigure(port);
+
+		mvpp2_port_enable(port);
+		mvpp2_tx_wake_all_queues(dev);
 	}
 
 	/* mac (re)configuration */
@@ -5697,9 +5700,6 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 
 	if (priv->hw_version == MVPP21 && port->flags & MVPP2_F_LOOPBACK)
 		mvpp2_port_loopback_set(port, state);
-
-	mvpp2_port_enable(port);
-	mvpp2_tx_wake_all_queues(dev);
 
 	if (priv->hw_version == MVPP22 && port->link_irq && !port->has_phy &&
 	    phylink_autoneg_inband(mode)) {
