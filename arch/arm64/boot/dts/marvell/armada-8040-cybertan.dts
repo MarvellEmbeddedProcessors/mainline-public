@@ -250,6 +250,10 @@
 				label = "cpu";
 				ethernet = <&cp1_eth1>;
 				phy-mode = "2500base-x";
+				fixed-link {
+					speed = <2500>;
+					full-duplex;
+				};
 			};
 
 			port@1 {
