@@ -1490,8 +1490,20 @@ int genphy_read_status(struct phy_device *phydev)
 		return err;
 
 	phydev->lp_advertising = 0;
+	/* Not upstream : For high speed modes, we would need to read C45
+		 * registers, that need to be emulated in fixed-link mode. This is
+		 * especially needed for DSA phy interfaces. A solution will be proposed
+		 * in mainline, that relies on redefinind the link mode representation,
+		 * which is very hard to backport. For now, hardcode the link parameters
+		 * directly here if we detect that the interface_mode is a high speed
+		 * one.
+		 */
 
-	if (AUTONEG_ENABLE == phydev->autoneg) {
+	if (phydev->interface == PHY_INTERFACE_MODE_2500BASEX) {
+			phydev->speed = SPEED_2500;
+			phydev->duplex = DUPLEX_FULL;
+			phydev->link = 1;
+	} else if (AUTONEG_ENABLE == phydev->autoneg) {
 		if (phydev->supported & (SUPPORTED_1000baseT_Half
 					| SUPPORTED_1000baseT_Full)) {
 			lpagb = phy_read(phydev, MII_STAT1000);
@@ -1598,32 +1610,45 @@ int genphy_config_init(struct phy_device *phydev)
 			| SUPPORTED_AUI | SUPPORTED_FIBRE |
 			SUPPORTED_BNC | SUPPORTED_Pause | SUPPORTED_Asym_Pause);
 
-	/* Do we support autonegotiation? */
-	val = phy_read(phydev, MII_BMSR);
-	if (val < 0)
-		return val;
+	/* Not upstream : For high speed modes, we would need to read C45
+	 * registers, that need to be emulated in fixed-link mode. This is
+	 * especially needed for DSA phy interfaces. A solution will be proposed
+	 * in mainline, that relies on redefinind the link mode representation,
+	 * which is very hard to backport. For now, hardcode the link parameters
+	 * directly here if we detect that the interface_mode is a high speed
+	 * one.
+	 */
 
-	if (val & BMSR_ANEGCAPABLE)
-		features |= SUPPORTED_Autoneg;
-
-	if (val & BMSR_100FULL)
-		features |= SUPPORTED_100baseT_Full;
-	if (val & BMSR_100HALF)
-		features |= SUPPORTED_100baseT_Half;
-	if (val & BMSR_10FULL)
-		features |= SUPPORTED_10baseT_Full;
-	if (val & BMSR_10HALF)
-		features |= SUPPORTED_10baseT_Half;
-
-	if (val & BMSR_ESTATEN) {
-		val = phy_read(phydev, MII_ESTATUS);
+	if (phydev->interface == PHY_INTERFACE_MODE_2500BASEX) {
+		features |= SUPPORTED_2500baseX_Full;
+	} else {
+		/* Do we support autonegotiation? */
+		val = phy_read(phydev, MII_BMSR);
 		if (val < 0)
 			return val;
 
-		if (val & ESTATUS_1000_TFULL)
-			features |= SUPPORTED_1000baseT_Full;
-		if (val & ESTATUS_1000_THALF)
-			features |= SUPPORTED_1000baseT_Half;
+		if (val & BMSR_ANEGCAPABLE)
+			features |= SUPPORTED_Autoneg;
+
+		if (val & BMSR_100FULL)
+			features |= SUPPORTED_100baseT_Full;
+		if (val & BMSR_100HALF)
+			features |= SUPPORTED_100baseT_Half;
+		if (val & BMSR_10FULL)
+			features |= SUPPORTED_10baseT_Full;
+		if (val & BMSR_10HALF)
+			features |= SUPPORTED_10baseT_Half;
+
+		if (val & BMSR_ESTATEN) {
+			val = phy_read(phydev, MII_ESTATUS);
+			if (val < 0)
+				return val;
+
+			if (val & ESTATUS_1000_TFULL)
+				features |= SUPPORTED_1000baseT_Full;
+			if (val & ESTATUS_1000_THALF)
+				features |= SUPPORTED_1000baseT_Half;
+		}
 	}
 
 	phydev->supported &= features;
