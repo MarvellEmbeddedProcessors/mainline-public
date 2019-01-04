@@ -128,8 +128,16 @@ struct mvpp2_cls_c2_entry {
 
 /* Classifier C2 engine entries */
 #define MVPP22_CLS_C2_N_ENTRIES		256
-#define MVPP22_CLS_C2_RSS_ENTRY(port)	(MVPP22_CLS_C2_N_ENTRIES - 1 - port)
-#define MVPP22_CLS_C2_QOS_ENTRY(port)	(MVPP22_CLS_C2_N_ENTRIES - 5 - port)
+
+/* Number of per-port dedicated entries in the C2 TCAM */
+#define MVPP22_CLS_C2_PORT_RANGE	8
+#define MVPP22_CLS_C2_PORT_N_RFS	6
+
+#define MVPP22_CLS_C2_PORT_FIRST(p)	(MVPP22_CLS_C2_N_ENTRIES - \
+					((p) * MVPP22_CLS_C2_PORT_RANGE))
+#define MVPP22_CLS_C2_RSS_ENTRY(p)	(MVPP22_CLS_C2_PORT_FIRST(p) - 1)
+#define MVPP22_CLS_C2_QOS_ENTRY(p)	(MVPP22_CLS_C2_RSS_ENTRY(p) - 1)
+#define MVPP22_CLS_C2_RFS_LOC(p, loc)	(MVPP22_CLS_C2_QOS_ENTRY(p) - (loc))
 
 /* C2 TCAM Layout :
  *
@@ -207,14 +215,13 @@ enum mvpp2_prs_flow {
 };
 
 enum mvpp2_cls_lu_type {
-	MVPP2_CLS_LU_RSS = 0,
-	MVPP2_CLS_LU_QOS,
+	MVPP2_CLS_LU_ALL = 0,
+	MVPP2_CLS_LU_TAGGED_ONLY,
 };
 
 /* LU Type defined for all engines, and specified in the flow table */
 #define MVPP2_CLS_LU_TYPE_MASK			0x3f
 
-#define MVPP2_N_PRS_FLOWS	52
 #define MVPP2_N_FLOWS		(MVPP2_FL_LAST - MVPP2_FL_START)
 
 struct mvpp2_cls_flow {
@@ -247,12 +254,16 @@ struct mvpp2_cls_lookup_entry {
 	u32 data;
 };
 
-void mvpp22_rss_fill_table(struct mvpp2_port *port, u32 table);
+int mvpp22_port_rss_enable(struct mvpp2_port *port);
+int mvpp22_port_rss_disable(struct mvpp2_port *port);
 
-void mvpp22_rss_port_init(struct mvpp2_port *port);
+int mvpp22_port_rss_ctx_create(struct mvpp2_port *port, u32 *rss_ctx);
+int mvpp22_port_rss_ctx_delete(struct mvpp2_port *port, u32 rss_ctx);
 
-void mvpp22_rss_enable(struct mvpp2_port *port);
-void mvpp22_rss_disable(struct mvpp2_port *port);
+int mvpp22_port_rss_ctx_indir_set(struct mvpp2_port *port, u32 rss_ctx,
+				  const u32 *indir);
+int mvpp22_port_rss_ctx_indir_get(struct mvpp2_port *port, u32 rss_ctx,
+				  u32 *indir);
 
 int mvpp2_ethtool_rxfh_get(struct mvpp2_port *port, struct ethtool_rxnfc *info);
 int mvpp2_ethtool_rxfh_set(struct mvpp2_port *port, struct ethtool_rxnfc *info);

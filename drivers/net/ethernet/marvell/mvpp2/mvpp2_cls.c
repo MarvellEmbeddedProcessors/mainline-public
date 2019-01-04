@@ -430,12 +430,6 @@ static void mvpp2_cls_flow_port_id_sel(struct mvpp2_cls_flow_entry *fe,
 		fe->data[0] &= ~MVPP2_CLS_FLOW_TBL0_PORT_ID_SEL;
 }
 
-static void mvpp2_cls_flow_seq_set(struct mvpp2_cls_flow_entry *fe, u32 seq)
-{
-	fe->data[1] &= ~MVPP2_CLS_FLOW_TBL1_SEQ(MVPP2_CLS_FLOW_TBL1_SEQ_MASK);
-	fe->data[1] |= MVPP2_CLS_FLOW_TBL1_SEQ(seq);
-}
-
 static void mvpp2_cls_flow_last_set(struct mvpp2_cls_flow_entry *fe,
 				    bool is_last)
 {
@@ -460,13 +454,6 @@ static void mvpp2_cls_flow_lu_type_set(struct mvpp2_cls_flow_entry *fe,
 {
 	fe->data[1] &= ~MVPP2_CLS_FLOW_TBL1_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK);
 	fe->data[1] |= MVPP2_CLS_FLOW_TBL1_LU_TYPE(lu_type);
-}
-
-static void mvpp2_cls_flow_vlan_set(struct mvpp2_cls_flow_entry *fe,
-				    enum mvpp22_cls_flow_tag tag)
-{
-	fe->data[0] &= ~MVPP2_CLS_FLOW_TBL0_VLAN(MVPP2_CLS_FLOW_TBL0_VLAN_MASK);
-	fe->data[0] |= MVPP2_CLS_FLOW_TBL0_VLAN(tag);
 }
 
 /* Initialize the parser entry for the given flow */
@@ -565,27 +552,6 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 	struct mvpp2_cls_flow_entry fe;
 	int i, pri = 0;
 
-	/* QOS C2 lookup */
-	memset(&fe, 0, sizeof(fe));
-	fe.index = MVPP2_FLOW_C2_QOS_ENTRY(flow->flow_id);
-
-	mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C2);
-	mvpp2_cls_flow_port_id_sel(&fe, true);
-	mvpp2_cls_flow_last_set(&fe, 0);
-	mvpp2_cls_flow_pri_set(&fe, pri);
-	mvpp2_cls_flow_seq_set(&fe, MVPP2_CLS_FLOW_SEQ_FIRST1);
-	mvpp2_cls_flow_lu_type_set(&fe, MVPP2_CLS_LU_QOS);
-
-	/* Execute this lookup only of at least one VLAN tag is present in the
-	 * packet
-	 */
-	mvpp2_cls_flow_vlan_set(&fe, MVPP22_CLS_FLOW_VLAN_TAGGED);
-
-	for (i = 0; i < MVPP2_MAX_PORTS; i++)
-		mvpp2_cls_flow_port_add(&fe, BIT(i));
-	pri++;
-	mvpp2_cls_flow_write(priv, &fe);
-
 	/* RSS config C2 lookup */
 	memset(&fe, 0, sizeof(fe));
 	fe.index = MVPP2_FLOW_C2_RSS_ENTRY(flow->flow_id);
@@ -594,8 +560,7 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 	mvpp2_cls_flow_port_id_sel(&fe, true);
 	mvpp2_cls_flow_last_set(&fe, 0);
 	mvpp2_cls_flow_pri_set(&fe, pri);
-	mvpp2_cls_flow_seq_set(&fe, MVPP2_CLS_FLOW_SEQ_MIDDLE);
-	mvpp2_cls_flow_lu_type_set(&fe, MVPP2_CLS_LU_RSS);
+	mvpp2_cls_flow_lu_type_set(&fe, MVPP2_CLS_LU_ALL);
 
 	/* Add all ports */
 	for (i = 0; i < MVPP2_MAX_PORTS; i++)
@@ -613,7 +578,6 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 		mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C3HA);
 		mvpp2_cls_flow_port_id_sel(&fe, true);
 		mvpp2_cls_flow_pri_set(&fe, pri);
-		mvpp2_cls_flow_seq_set(&fe, MVPP2_CLS_FLOW_SEQ_MIDDLE);
 		mvpp2_cls_flow_port_add(&fe, BIT(i));
 
 		pri++;
@@ -622,7 +586,6 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 
 	/* Update the last entry */
 	mvpp2_cls_flow_last_set(&fe, 1);
-	mvpp2_cls_flow_seq_set(&fe, MVPP2_CLS_FLOW_SEQ_LAST);
 
 	mvpp2_cls_flow_write(priv, &fe);
 }
@@ -839,7 +802,6 @@ static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 	struct mvpp2_cls_c2_entry c2;
 	u8 qh, ql, pmap;
 
-	/* Add per-port QoS entry */
 	memset(&c2, 0, sizeof(c2));
 
 	c2.index = MVPP22_CLS_C2_QOS_ENTRY(port->id);
@@ -848,7 +810,7 @@ static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 	 * by default
 	 */
 	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
-	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_QOS);
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TAGGED_ONLY);
 
 	/* Mark packet as "forwarded to software". If match, update and lock
 	 * the dest rxq that we recovered from the QoS table so that the RSS
@@ -876,7 +838,7 @@ static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 
 	/* Match on Lookup Type */
 	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
-	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_RSS);
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_ALL);
 
 	/* Update RSS status after matching this entry */
 	c2.act = MVPP22_CLS_C2_ACT_RSS_EN(MVPP22_C2_UPD_LOCK);
@@ -930,19 +892,6 @@ void mvpp2_cls_init(struct mvpp2 *priv)
 	mvpp2_cls_port_init_flows(priv);
 }
 
-static void mvpp2_cls_port_qos_init(struct mvpp2_port *port)
-{
-	int i;
-
-	/* Default QoS table initialization : Map all 802.3q priorities to the
-	 * port's first rxq
-	 */
-	for (i = 0; i < MVPP22_QOS_N_ENTRIES; i++) {
-		mvpp22_qos_set_8023q_to_rxq(port, i, 0);
-		port->qos[i] = MVPP22_QOS_NO_ENTRY;
-	}
-}
-
 void mvpp2_cls_port_config(struct mvpp2_port *port)
 {
 	struct mvpp2_cls_lookup_entry le;
@@ -970,7 +919,7 @@ void mvpp2_cls_port_config(struct mvpp2_port *port)
 	/* Update lookup ID table entry */
 	mvpp2_cls_lookup_write(port->priv, &le);
 
-	mvpp2_cls_port_qos_init(port);
+//	mvpp2_cls_port_qos_init(port);
 
 	mvpp2_port_c2_cls_init(port);
 }
@@ -982,11 +931,21 @@ u32 mvpp2_cls_c2_hit_count(struct mvpp2 *priv, int c2_index)
 	return mvpp2_read(priv, MVPP22_CLS_C2_HIT_CTR);
 }
 
-static void mvpp2_rss_port_c2_enable(struct mvpp2_port *port)
+static void mvpp2_rss_port_c2_enable(struct mvpp2_port *port, u32 ctx)
 {
 	struct mvpp2_cls_c2_entry c2;
+	u8 qh, ql;
 
 	mvpp2_cls_c2_read(port->priv, MVPP22_CLS_C2_RSS_ENTRY(port->id), &c2);
+
+	/* The RxQ number is used to select the RSS table. It that case, we set
+	 * it to be the ctx number.
+	 */
+	qh = (ctx >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+	ql = ctx & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+
+	c2.attr[0] = MVPP22_CLS_C2_ATTR0_QHIGH(qh) |
+		      MVPP22_CLS_C2_ATTR0_QLOW(ql);
 
 	c2.attr[2] |= MVPP22_CLS_C2_ATTR2_RSS_EN;
 
@@ -996,22 +955,20 @@ static void mvpp2_rss_port_c2_enable(struct mvpp2_port *port)
 static void mvpp2_rss_port_c2_disable(struct mvpp2_port *port)
 {
 	struct mvpp2_cls_c2_entry c2;
+	u8 qh, ql;
 
 	mvpp2_cls_c2_read(port->priv, MVPP22_CLS_C2_RSS_ENTRY(port->id), &c2);
+
+	/* Reset the default destination RxQ to the port's first rx queue. */
+	qh = (port->first_rxq >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+	ql = port->first_rxq & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+
+	c2.attr[0] = MVPP22_CLS_C2_ATTR0_QHIGH(qh) |
+		      MVPP22_CLS_C2_ATTR0_QLOW(ql);
 
 	c2.attr[2] &= ~MVPP22_CLS_C2_ATTR2_RSS_EN;
 
 	mvpp2_cls_c2_write(port->priv, &c2);
-}
-
-void mvpp22_rss_enable(struct mvpp2_port *port)
-{
-	mvpp2_rss_port_c2_enable(port);
-}
-
-void mvpp22_rss_disable(struct mvpp2_port *port)
-{
-	mvpp2_rss_port_c2_disable(port);
 }
 
 /* The C2 engine controls wether we use the QoS table for 802.1Q / DSCP
@@ -1063,64 +1020,251 @@ void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 	mvpp2_write(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG, val);
 }
 
-static int mvpp2_cls_flow_spec_get_8023_pri(struct ethtool_rx_flow_spec *spec)
+static int mvpp2_cls_flow_spec_get_8023q_pri(struct ethtool_rx_flow_spec *spec)
 {
 	if (!(spec->flow_type & (FLOW_EXT | FLOW_MAC_EXT)))
-		return -EOPNOTSUPP;
+		return -EINVAL;
 
 	/* We only support matching the full vlan prio, and nothing else.*/
 	if (spec->m_ext.vlan_tci != htons(VLAN_PRIO_MASK))
-		return -EOPNOTSUPP;
+		return -EINVAL;
 
 	return ntohs(spec->m_ext.vlan_tci &
 		     spec->h_ext.vlan_tci) >> VLAN_PRIO_SHIFT;
 }
 
-static int mvpp2_cls_qos_add(struct mvpp2_port *port,
-			     struct ethtool_rx_flow_spec *spec)
+static int mvpp2_port_c2_qos_rule_add(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rfs_flow)
 {
-	int pri = mvpp2_cls_flow_spec_get_8023_pri(spec);
-	if (pri < 0)
-		return pri;
-
-	/* Enable the lookup in case there was no previous lookup set. */
 	mvpp22_port_c2_qos_lookup_enable(port);
 
-	port->qos[pri] = spec->ring_cookie;
-
-	mvpp22_qos_set_8023q_to_rxq(port, pri, spec->ring_cookie);
+	mvpp22_qos_set_8023q_to_rxq(port, rfs_flow->pri, rfs_flow->dst);
 
 	return 0;
 }
 
-static bool mvpp2_port_cls_has_any_qos_rule(struct mvpp2_port *port)
+static int mvpp2_port_c2_tcam_rule_add(struct mvpp2_port *port,
+				       struct mvpp2_rfs_rule *rfs_flow)
 {
-	int i;
-	for (i = 0; i < MVPP22_QOS_N_ENTRIES; i++)
-		if (port->qos[i] != MVPP22_QOS_NO_ENTRY)
-			return true;
+	struct mvpp2_cls_c2_entry c2;
+	u8 qh, ql, pmap;
 
-	return false;
-}
-
-static int mvpp2_cls_qos_del(struct mvpp2_port *port,
-			     struct ethtool_rx_flow_spec *spec)
-{
-	int pri = mvpp2_cls_flow_spec_get_8023_pri(spec);
-	if (pri < 0)
-		return pri;
-
-	if (port->qos[pri] < 0)
+	if (rfs_flow->loc > MVPP22_CLS_C2_PORT_N_RFS)
 		return -EINVAL;
 
-	/* Re-set the destination queue to its default */
-	mvpp22_qos_set_8023q_to_rxq(port, pri, 0);
+	c2.index = MVPP22_CLS_C2_RFS_LOC(port->id, rfs_flow->loc);
 
-	port->qos[pri] = MVPP22_QOS_NO_ENTRY;
+	c2.tcam[0] = (rfs_flow->c2_tcam & 0xff) |
+		     ((rfs_flow->c2_tcam_mask & 0xff) << 16);
+	c2.tcam[1] = ((rfs_flow->c2_tcam >> 16) & 0xff) |
+		     (((rfs_flow->c2_tcam_mask >> 16) & 0xff) << 16);
+	c2.tcam[2] = ((rfs_flow->c2_tcam >> 32) & 0xff) |
+		     (((rfs_flow->c2_tcam_mask >> 32) & 0xff) << 16);
+	c2.tcam[3] = ((rfs_flow->c2_tcam >> 48) & 0xff) |
+		     (((rfs_flow->c2_tcam_mask >> 48) & 0xff) << 16);
 
-	/* If we removed the last QoS rule, disable QoS altogether */
-	if (!mvpp2_port_cls_has_any_qos_rule(port))
-		mvpp22_port_c2_qos_lookup_disable(port);
+	pmap = BIT(port->id);
+	c2.tcam[4] = MVPP22_CLS_C2_PORT_ID(pmap);
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(pmap));
+
+	/* Match on Lookup Type */
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_ALL);
+
+	/* Update RSS status after matching this entry */
+	if (rfs_flow->action == MVPP2_RFS_ACT_TO_RSS)
+		c2.act = MVPP22_CLS_C2_ACT_RSS_EN(MVPP22_C2_UPD_LOCK);
+
+	/* Mark packet as "forwarded to software", needed for RSS */
+	c2.act |= MVPP22_CLS_C2_ACT_FWD(MVPP22_C2_FWD_SW_LOCK);
+
+	c2.act |= MVPP22_CLS_C2_ACT_QHIGH(MVPP22_C2_UPD_LOCK) |
+		   MVPP22_CLS_C2_ACT_QLOW(MVPP22_C2_UPD_LOCK);
+
+	qh = ((rfs_flow->dst + port->first_rxq) >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+	ql = (rfs_flow->dst + port->first_rxq) & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+
+	c2.attr[0] = MVPP22_CLS_C2_ATTR0_QHIGH(qh) |
+		      MVPP22_CLS_C2_ATTR0_QLOW(ql);
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+
+	return 0;
+}
+
+static int mvpp2_port_c2_rfs_rule_insert(struct mvpp2_port *port,
+					 struct mvpp2_rfs_rule *rfs_flow)
+{
+	int ret = 0;
+
+	if (rfs_flow->flags & MVPP2_RFS_F_VLAN_QOS &&
+	    rfs_flow->action == MVPP2_RFS_ACT_TO_RXQ) {
+		ret = mvpp2_port_c2_qos_rule_add(port, rfs_flow);
+	} else {
+		ret = mvpp2_port_c2_tcam_rule_add(port, rfs_flow);
+	}
+
+	return ret;
+
+}
+
+/* TODO */
+static int mvpp2_port_flow_table_find(struct mvpp2 *priv, int flow_id, u8 engine,
+				      u8 lu_type, u8 hek_fields)
+{
+	return -1;
+}
+
+static int mvpp2_port_flt_rfs_rule_insert(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rfs_flow)
+{
+	const struct mvpp2_cls_flow *flow;
+	struct mvpp2_cls_flow_entry fe;
+	struct mvpp2 *priv = port->priv;
+	int index, ret, i;
+	u8 lu_type;
+
+	if (rfs_flow->engine != MVPP22_CLS_ENGINE_C2)
+		return -EOPNOTSUPP;
+
+	ret = mvpp2_port_c2_rfs_rule_insert(port, rfs_flow);
+	if (ret)
+		return ret;
+
+	// Iterate on each flow and determine if we should apply the rule
+	for (i = 0; i < MVPP2_N_PRS_FLOWS; i++) {
+		flow = mvpp2_cls_flow_get(i);
+		if (!flow)
+			return 0;
+
+		/* Skip untagged flows if we want tagged-only traffic */
+		if (rfs_flow->flow_type == MVPP2_CLS_TAGGED_ONLY &&
+		    !(flow->supported_hash_opts & MVPP22_CLS_HEK_OPT_VLAN))
+			continue;
+		else if (rfs_flow->flow_type != MVPP2_CLS_ALL_FLOWS &&
+			 flow->flow_type == rfs_flow->flow_type)
+			continue;
+
+		/* Insert the rule in the flow table if necessary*/
+		if (rfs_flow->flow_type == MVPP2_CLS_TAGGED_ONLY)
+			lu_type = MVPP2_CLS_LU_TAGGED_ONLY;
+		else if (rfs_flow->flow_type == MVPP2_CLS_ALL_FLOWS)
+			lu_type = MVPP2_CLS_LU_ALL;
+		else
+			lu_type = flow->flow_type;
+
+		index = mvpp2_port_flow_table_find(priv, flow->flow_id,
+						   rfs_flow->engine, lu_type,
+						   rfs_flow->hek_fields);
+
+		/* If there already is a flow entry that matches our parameters */
+		if (index >= 0) {
+			mvpp2_cls_flow_read(priv, index, &fe);
+			mvpp2_cls_flow_port_add(&fe, BIT(port->id));
+			mvpp2_cls_flow_write(priv, &fe);
+			continue;
+		}
+
+		/* Create entry */
+		memset(&fe, 0, sizeof(fe));
+		fe.index = priv->flow_table_seq_first_free[i]++;
+
+		mvpp2_cls_flow_eng_set(&fe, rfs_flow->engine);
+		mvpp2_cls_flow_port_id_sel(&fe, true);
+		mvpp2_cls_flow_last_set(&fe, 0);
+		mvpp2_flow_set_hek_fields(&fe, rfs_flow->hek_fields);
+		/* FIXME PRI */
+		mvpp2_cls_flow_pri_set(&fe, 5);
+		mvpp2_cls_flow_lu_type_set(&fe, lu_type);
+		mvpp2_cls_flow_port_add(&fe, BIT(port->id));
+
+		mvpp2_cls_flow_write(priv, &fe);
+	}
+
+	return 0;
+}
+
+static u16 mvpp2_cls_flow_spec_get_hek(struct ethtool_rxnfc *info)
+{
+	u16 hek = 0;
+	int pri;
+
+	pri = mvpp2_cls_flow_spec_get_8023q_pri(&info->fs);
+	if (pri >= 0)
+		hek |= MVPP22_CLS_HEK_OPT_VLAN;
+
+	return hek;
+}
+
+static int mvpp2_cls_c2_build_tcam_match(struct mvpp2_rfs_rule *flow,
+					  struct ethtool_rx_flow_spec *spec)
+{
+	if (!(spec->flow_type & (FLOW_EXT | FLOW_MAC_EXT)))
+		return -EINVAL;
+
+	/* We only support matching the full vlan prio, and nothing else.*/
+	if (spec->m_ext.vlan_tci != htons(VLAN_PRIO_MASK))
+		return -EINVAL;
+
+	flow->c2_tcam |= spec->h_ext.vlan_tci;
+	flow->c2_tcam_mask |= spec->m_ext.vlan_tci;
+
+	return 0;
+}
+
+/* Convert an ethtool rxnfc rule into a mvpp2-specific rfs flow rule.
+ * It is responsible for detecting that a rule is correct.
+ */
+static int mvpp2_cls_rfs_parse_rule(struct ethtool_rxnfc *info,
+				    struct mvpp2_rfs_rule *flow)
+{
+	int pri;
+
+	memset(flow, 0, sizeof(*flow));
+
+	if (info->fs.ring_cookie == RX_CLS_FLOW_WAKE)
+		return -EOPNOTSUPP;
+
+	if (info->fs.flow_type & FLOW_RSS) {
+		flow->action = MVPP2_RFS_ACT_TO_RSS;
+		if (info->rss_context > 7)
+			return -EOPNOTSUPP;
+		flow->dst = info->rss_context;
+	} else if (info->fs.ring_cookie == RX_CLS_FLOW_DISC) {
+		flow->action = MVPP2_RFS_ACT_DROP;
+	} else {
+		flow->action = MVPP2_RFS_ACT_TO_RXQ;
+		flow->dst = info->fs.ring_cookie;
+	}
+
+	flow->loc = info->fs.location;
+
+	/* Priority based steering isn't necessarly handled by a match engine,
+	 * we can use the dedicated C2 QoS tables.
+	 */
+	pri = mvpp2_cls_flow_spec_get_8023q_pri(&info->fs);
+	if (pri >= 0) {
+		flow->pri = pri;
+		flow->flags |= MVPP2_RFS_F_VLAN_QOS;
+		flow->flow_type = MVPP2_CLS_TAGGED_ONLY;
+	} else {
+		flow->flow_type = info->flow_type & !(FLOW_EXT | FLOW_MAC_EXT | FLOW_RSS);
+	}
+
+	/* Get the HEK parameters and the engine needed to perform the flow
+	 * steering */
+	flow->hek_fields = mvpp2_cls_flow_spec_get_hek(info);
+
+	/* Classifier can only extract 5 fields from the header */
+	if (hweight16(flow->hek_fields) > MVPP2_FLOW_N_FIELDS)
+		return -EOPNOTSUPP;
+
+	/* For now, only use the C2 engine which has a HEK size limited to 64
+	 * bits for TCAM matching.*/
+	flow->engine = MVPP22_CLS_ENGINE_C2;
+
+	if (mvpp2_cls_c2_build_tcam_match(flow, &info->fs))
+		return -EINVAL;
 
 	return 0;
 }
@@ -1128,14 +1272,21 @@ static int mvpp2_cls_qos_del(struct mvpp2_port *port,
 int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
 			       struct ethtool_rxnfc *info)
 {
-	/* For now, only support flow steering based on 8023Q vlan pri */
-	return mvpp2_cls_qos_add(port, &info->fs);
+	struct mvpp2_rfs_rule rfs_flow;
+	int ret;
+
+	ret = mvpp2_cls_rfs_parse_rule(info, &rfs_flow);
+	if (ret)
+		return ret;
+
+	return mvpp2_port_flt_rfs_rule_insert(port, &rfs_flow);
 }
 
+/* TODO */
 int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
 			       struct ethtool_rxnfc *info)
 {
-	return mvpp2_cls_qos_del(port, &info->fs);
+	return 0;
 }
 
 static inline u32 mvpp22_rxfh_indir(struct mvpp2_port *port, u32 rxq)
@@ -1157,19 +1308,198 @@ static inline u32 mvpp22_rxfh_indir(struct mvpp2_port *port, u32 rxq)
 	return port->first_rxq + ((rxq * nrxqs + rxq / cpus) % port->nrxqs);
 }
 
-void mvpp22_rss_fill_table(struct mvpp2_port *port, u32 table)
+static int mvpp22_rss_ctx(struct mvpp2_port *port, int port_rss_ctx)
+{
+	return port->rss_ctx[port_rss_ctx];
+}
+
+static void mvpp22_rss_fill_table(struct mvpp2_port *port,
+				  struct mvpp2_rss_table *table,
+				  u32 rss_ctx)
 {
 	struct mvpp2 *priv = port->priv;
 	int i;
 
 	for (i = 0; i < MVPP22_RSS_TABLE_ENTRIES; i++) {
-		u32 sel = MVPP22_RSS_INDEX_TABLE(table) |
+		u32 sel = MVPP22_RSS_INDEX_TABLE(rss_ctx) |
 			  MVPP22_RSS_INDEX_TABLE_ENTRY(i);
 		mvpp2_write(priv, MVPP22_RSS_INDEX, sel);
 
 		mvpp2_write(priv, MVPP22_RSS_TABLE_ENTRY,
-			    mvpp22_rxfh_indir(port, port->indir[i]));
+			    mvpp22_rxfh_indir(port, table->indir[i]));
 	}
+}
+
+static int mvpp22_rss_context_create(struct mvpp2_port *port, u32 *rss_ctx)
+{
+	struct mvpp2 *priv = port->priv;
+	u32 ctx;
+
+	/* Find the first free RSS table */
+	for (ctx = 0; ctx < MVPP22_N_RSS_TABLES; ctx++) {
+		if (!priv->rss_tables[ctx])
+			break;
+	}
+
+	if (ctx == MVPP22_N_RSS_TABLES)
+		return -EINVAL;
+
+	priv->rss_tables[ctx] = kzalloc(sizeof(*priv->rss_tables[ctx]), GFP_KERNEL);
+	if (!priv->rss_tables[ctx])
+		return -ENOMEM;
+
+	*rss_ctx = ctx;
+
+	/* Set the table width: replace the whole classifier Rx queue number
+	 * with the ones configured in RSS table entries.
+	 */
+	mvpp2_write(priv, MVPP22_RSS_INDEX, MVPP22_RSS_INDEX_TABLE(ctx));
+	mvpp2_write(priv, MVPP22_RSS_WIDTH, 8);
+
+	mvpp2_write(priv, MVPP22_RSS_INDEX, MVPP22_RSS_INDEX_QUEUE(ctx));
+	mvpp2_write(priv, MVPP22_RXQ2RSS_TABLE, MVPP22_RSS_TABLE_POINTER(ctx));
+
+	pr_info("%s : Created context %d\n", __func__, ctx);
+
+	return 0;
+}
+
+int mvpp22_port_rss_ctx_create(struct mvpp2_port *port, u32 *port_ctx)
+{
+	u32 rss_ctx;
+	int ret, i;
+
+	ret = mvpp22_rss_context_create(port, &rss_ctx);
+	if (ret)
+		return ret;
+
+	/* Find the first available context number in the port, starting from 1.
+	 * Context 0 on each port is reserved for the default context.
+	 */
+	for (i = 1; i < MVPP22_N_RSS_TABLES; i++) {
+		if (port->rss_ctx[i] < 0)
+			break;
+	}
+
+	port->rss_ctx[i] = rss_ctx;
+	*port_ctx = i;
+
+	return 0;
+}
+
+static struct mvpp2_rss_table *mvpp22_rss_table_get(struct mvpp2 *priv,
+						    u32 rss_ctx)
+{
+	if (rss_ctx < 0 || rss_ctx >= MVPP22_N_RSS_TABLES)
+		return NULL;
+
+	return priv->rss_tables[rss_ctx];
+}
+
+int mvpp22_port_rss_ctx_delete(struct mvpp2_port *port, u32 port_ctx)
+{
+	struct mvpp2 *priv = port->priv;
+	int rss_ctx = mvpp22_rss_ctx(port, port_ctx);
+
+	if (rss_ctx < 0 || rss_ctx >= MVPP22_N_RSS_TABLES)
+		return -EINVAL;
+
+	if (priv->rss_tables[rss_ctx])
+		kfree(priv->rss_tables[rss_ctx]);
+
+	priv->rss_tables[rss_ctx] = NULL;
+	port->rss_ctx[port_ctx] = -1;
+
+	return 0;
+}
+
+int mvpp22_port_rss_ctx_indir_set(struct mvpp2_port *port, u32 port_ctx,
+				 const u32 *indir)
+{
+	int rss_ctx =  mvpp22_rss_ctx(port, port_ctx);
+	struct mvpp2_rss_table *rss_table = mvpp22_rss_table_get(port->priv,
+								 rss_ctx);
+	if (!rss_table)
+		return -EINVAL;
+
+	memcpy(rss_table->indir, indir,
+	       MVPP22_RSS_TABLE_ENTRIES * sizeof(rss_table->indir[0]));
+
+	mvpp22_rss_fill_table(port, rss_table, rss_ctx);
+
+	return 0;
+}
+
+int mvpp22_port_rss_ctx_indir_get(struct mvpp2_port *port, u32 port_ctx,
+				 u32 *indir)
+{
+	int rss_ctx =  mvpp22_rss_ctx(port, port_ctx);
+	struct mvpp2_rss_table *rss_table = mvpp22_rss_table_get(port->priv,
+								 rss_ctx);
+
+	if (!rss_table)
+		return -EINVAL;
+
+	memcpy(indir, rss_table->indir,
+	       MVPP22_RSS_TABLE_ENTRIES * sizeof(rss_table->indir[0]));
+
+	return 0;
+}
+
+void mvpp22_rss_port_init(struct mvpp2_port *port)
+{
+	struct mvpp2_rss_table *table;
+	struct mvpp2 *priv = port->priv;
+	int i;
+
+	table = mvpp22_rss_table_get(priv, port->rss_ctx[0]);
+	if (!table)
+		return;
+
+	/* Configure the first table to evenly distribute the packets across
+	 * real Rx Queues. The table entries map a hash to a port Rx Queue.
+	 */
+	for (i = 0; i < MVPP22_RSS_TABLE_ENTRIES; i++)
+		table->indir[i] = ethtool_rxfh_indir_default(i, port->nrxqs);
+
+	mvpp22_rss_fill_table(port, table, port->rss_ctx[0]);
+
+	/* Configure default flows */
+	mvpp2_port_rss_hash_opts_set(port, IPV4_FLOW, MVPP22_CLS_HEK_IP4_2T);
+	mvpp2_port_rss_hash_opts_set(port, IPV6_FLOW, MVPP22_CLS_HEK_IP6_2T);
+	mvpp2_port_rss_hash_opts_set(port, TCP_V4_FLOW, MVPP22_CLS_HEK_IP4_5T);
+	mvpp2_port_rss_hash_opts_set(port, TCP_V6_FLOW, MVPP22_CLS_HEK_IP6_5T);
+	mvpp2_port_rss_hash_opts_set(port, UDP_V4_FLOW, MVPP22_CLS_HEK_IP4_5T);
+	mvpp2_port_rss_hash_opts_set(port, UDP_V6_FLOW, MVPP22_CLS_HEK_IP6_5T);
+}
+
+int mvpp22_port_rss_enable(struct mvpp2_port *port)
+{
+	u32 context = 0;
+	int ret;
+
+	ret = mvpp22_rss_context_create(port, &context);
+	if (ret)
+		return ret;
+
+	port->rss_ctx[0] = context;
+
+	/* Initialize the default indirection table and hashing parameters */
+	mvpp22_rss_port_init(port);
+
+	mvpp2_rss_port_c2_enable(port, context);
+
+	return 0;
+}
+
+int mvpp22_port_rss_disable(struct mvpp2_port *port)
+{
+	if (port->rss_ctx[0] < 0)
+		return -EINVAL;
+
+	mvpp2_rss_port_c2_disable(port);
+
+	return mvpp22_port_rss_ctx_delete(port, port->rss_ctx[0]);
 }
 
 int mvpp2_ethtool_rxfh_set(struct mvpp2_port *port, struct ethtool_rxnfc *info)
@@ -1245,40 +1575,4 @@ int mvpp2_ethtool_rxfh_get(struct mvpp2_port *port, struct ethtool_rxnfc *info)
 		}
 	}
 	return 0;
-}
-
-void mvpp22_rss_port_init(struct mvpp2_port *port)
-{
-	struct mvpp2 *priv = port->priv;
-	int i;
-
-	/* Set the table width: replace the whole classifier Rx queue number
-	 * with the ones configured in RSS table entries.
-	 */
-	mvpp2_write(priv, MVPP22_RSS_INDEX, MVPP22_RSS_INDEX_TABLE(port->id));
-	mvpp2_write(priv, MVPP22_RSS_WIDTH, 8);
-
-	/* The default RxQ is used as a key to select the RSS table to use.
-	 * We use one RSS table per port.
-	 */
-	mvpp2_write(priv, MVPP22_RSS_INDEX,
-		    MVPP22_RSS_INDEX_QUEUE(port->first_rxq));
-	mvpp2_write(priv, MVPP22_RXQ2RSS_TABLE,
-		    MVPP22_RSS_TABLE_POINTER(port->id));
-
-	/* Configure the first table to evenly distribute the packets across
-	 * real Rx Queues. The table entries map a hash to a port Rx Queue.
-	 */
-	for (i = 0; i < MVPP22_RSS_TABLE_ENTRIES; i++)
-		port->indir[i] = ethtool_rxfh_indir_default(i, port->nrxqs);
-
-	mvpp22_rss_fill_table(port, port->id);
-
-	/* Configure default flows */
-	mvpp2_port_rss_hash_opts_set(port, IPV4_FLOW, MVPP22_CLS_HEK_IP4_2T);
-	mvpp2_port_rss_hash_opts_set(port, IPV6_FLOW, MVPP22_CLS_HEK_IP6_2T);
-	mvpp2_port_rss_hash_opts_set(port, TCP_V4_FLOW, MVPP22_CLS_HEK_IP4_5T);
-	mvpp2_port_rss_hash_opts_set(port, TCP_V6_FLOW, MVPP22_CLS_HEK_IP6_5T);
-	mvpp2_port_rss_hash_opts_set(port, UDP_V4_FLOW, MVPP22_CLS_HEK_IP4_5T);
-	mvpp2_port_rss_hash_opts_set(port, UDP_V6_FLOW, MVPP22_CLS_HEK_IP6_5T);
 }
