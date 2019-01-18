@@ -1085,6 +1085,8 @@ static void phy_update_linkmodes(struct phy_device *phydev)
 		ETHTOOL_LINK_MODE_100baseT_Full_BIT,
 		ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
 		ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+		ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+		ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
 		ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
 	};
 
