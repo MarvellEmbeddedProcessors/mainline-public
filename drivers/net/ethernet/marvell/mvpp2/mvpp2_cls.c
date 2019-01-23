@@ -1032,7 +1032,7 @@ static int mvpp22_rss_context_create(struct mvpp2_port *port, u32 *rss_ctx)
 	return 0;
 }
 
-static int mvpp22_port_rss_ctx_create(struct mvpp2_port *port, u32 *port_ctx)
+int mvpp22_port_rss_ctx_create(struct mvpp2_port *port, u32 *port_ctx)
 {
 	u32 rss_ctx;
 	int ret, i;
@@ -1064,7 +1064,7 @@ static struct mvpp2_rss_table *mvpp22_rss_table_get(struct mvpp2 *priv,
 	return priv->rss_tables[rss_ctx];
 }
 
-static int mvpp22_port_rss_ctx_delete(struct mvpp2_port *port, u32 port_ctx)
+int mvpp22_port_rss_ctx_delete(struct mvpp2_port *port, u32 port_ctx)
 {
 	struct mvpp2 *priv = port->priv;
 	int rss_ctx = mvpp22_rss_ctx(port, port_ctx);
