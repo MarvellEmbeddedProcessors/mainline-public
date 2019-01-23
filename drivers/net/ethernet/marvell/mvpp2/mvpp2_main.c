@@ -3935,24 +3935,26 @@ static int mvpp2_ethtool_get_rxfh(struct net_device *dev, u32 *indir, u8 *key,
 				  u8 *hfunc)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
+	int ret = 0;
 
 	if (!mvpp22_rss_is_supported())
 		return -EOPNOTSUPP;
 
-	if (indir)
-		memcpy(indir, port->indir,
-		       ARRAY_SIZE(port->indir) * sizeof(port->indir[0]));
+	if (indir) {
+		ret = mvpp22_port_rss_ctx_indir_get(port, 0, indir);
+	}
 
 	if (hfunc)
 		*hfunc = ETH_RSS_HASH_CRC32;
 
-	return 0;
+	return ret;
 }
 
 static int mvpp2_ethtool_set_rxfh(struct net_device *dev, const u32 *indir,
 				  const u8 *key, const u8 hfunc)
 {
 	struct mvpp2_port *port = netdev_priv(dev);
+	int ret = 0;
 
 	if (!mvpp22_rss_is_supported())
 		return -EOPNOTSUPP;
@@ -3963,13 +3965,10 @@ static int mvpp2_ethtool_set_rxfh(struct net_device *dev, const u32 *indir,
 	if (key)
 		return -EOPNOTSUPP;
 
-	if (indir) {
-		memcpy(port->indir, indir,
-		       ARRAY_SIZE(port->indir) * sizeof(port->indir[0]));
-		mvpp22_rss_fill_table(port, port->id);
-	}
+	if (indir)
+		ret = mvpp22_port_rss_ctx_indir_set(port, 0, indir);
 
-	return 0;
+	return ret;
 }
 
 /* Device ops */

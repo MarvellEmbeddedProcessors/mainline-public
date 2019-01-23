@@ -610,6 +610,7 @@
 #define MVPP2_BIT_IN_WORD(bit)		((bit) % 32)
 
 /* RSS constants */
+#define MVPP22_N_RSS_TABLES		8
 #define MVPP22_RSS_TABLE_ENTRIES	32
 
 /* IPv6 max L3 address size */
@@ -709,6 +710,9 @@ enum mvpp2_prs_l3_cast {
 #define MVPP2_DESC_DMA_MASK	DMA_BIT_MASK(40)
 
 /* Definitions */
+struct mvpp2_rss_table {
+	u32 indir[MVPP22_RSS_TABLE_ENTRIES];
+};
 
 /* Shared Packet Processor resources */
 struct mvpp2 {
@@ -770,6 +774,9 @@ struct mvpp2 {
 
 	/* Debugfs root entry */
 	struct dentry *dbgfs_dir;
+
+	/* RSS Indirection tables */
+	struct mvpp2_rss_table *rss_tables[MVPP22_N_RSS_TABLES];
 };
 
 struct mvpp2_pcpu_stats {
@@ -870,8 +877,10 @@ struct mvpp2_port {
 
 	u32 tx_time_coal;
 
-	/* RSS indirection table */
-	u32 indir[MVPP22_RSS_TABLE_ENTRIES];
+	/* Each port has its own view of the rss contexts, so that it can number
+	 * them from 0
+	 */
+	int rss_ctx[MVPP22_N_RSS_TABLES];
 };
 
 /* The mvpp2_tx_desc and mvpp2_rx_desc structures describe the
