@@ -70,6 +70,11 @@ static int queue_mode = MVPP2_QDIST_MULTI_MODE;
 module_param(queue_mode, int, 0444);
 MODULE_PARM_DESC(queue_mode, "Set queue_mode (single=0, multi=1)");
 
+static int bm_underrun_protect = 1;
+
+module_param(bm_underrun_protect, int, 0444);
+MODULE_PARM_DESC(bm_underrun_protect, "Set BM underrun protect feature (0-1), def=1");
+
 /* Utility/helper methods */
 
 void mvpp2_write(struct mvpp2 *priv, u32 offset, u32 data)
@@ -424,6 +429,21 @@ static int mvpp2_bm_pool_create(struct device *dev, struct mvpp2 *priv,
 
 	val = mvpp2_read(priv, MVPP2_BM_POOL_CTRL_REG(bm_pool->id));
 	val |= MVPP2_BM_START_MASK;
+
+	val &= ~MVPP2_BM_LOW_THRESH_MASK;
+	val &= ~MVPP2_BM_HIGH_THRESH_MASK;
+
+	/* Set 8 Pools BPPI threshold if BM underrun protection feature
+	 * were enabled
+	 */
+	if (priv->hw_version == MVPP23 && bm_underrun_protect) {
+		val |= MVPP2_BM_LOW_THRESH_VALUE(MVPP23_BM_BPPI_LOW_THRESH);
+		val |= MVPP2_BM_HIGH_THRESH_VALUE(MVPP23_BM_BPPI_HIGH_THRESH);
+	} else {
+		val |= MVPP2_BM_LOW_THRESH_VALUE(MVPP2_BM_BPPI_LOW_THRESH);
+		val |= MVPP2_BM_HIGH_THRESH_VALUE(MVPP2_BM_BPPI_HIGH_THRESH);
+	}
+
 	mvpp2_write(priv, MVPP2_BM_POOL_CTRL_REG(bm_pool->id), val);
 
 	bm_pool->size = size;
@@ -592,6 +612,16 @@ err_unroll_pools:
 	return err;
 }
 
+/* Routine enable PPv23 8 pool mode */
+static void mvpp23_bm_set_8pool_mode(struct mvpp2 *priv)
+{
+	int val;
+
+	val = mvpp2_read(priv, MVPP22_BM_POOL_BASE_ADDR_HIGH_REG);
+	val |= MVPP23_BM_8POOL_MODE;
+	mvpp2_write(priv, MVPP22_BM_POOL_BASE_ADDR_HIGH_REG, val);
+}
+
 static int mvpp2_bm_init(struct device *dev, struct mvpp2 *priv)
 {
 	enum dma_data_direction dma_dir = DMA_FROM_DEVICE;
@@ -644,6 +674,9 @@ static int mvpp2_bm_init(struct device *dev, struct mvpp2 *priv)
 				      sizeof(*priv->bm_pools), GFP_KERNEL);
 	if (!priv->bm_pools)
 		return -ENOMEM;
+
+	if (priv->hw_version == MVPP23 && bm_underrun_protect)
+		mvpp23_bm_set_8pool_mode(priv);
 
 	err = mvpp2_bm_pools_init(dev, priv);
 	if (err < 0)
@@ -6491,7 +6524,7 @@ static void mvpp2_mac_link_up(struct phylink_config *config,
 			     val);
 	}
 
-	if (port->priv->global_tx_fc) {
+	if (port->priv->global_tx_fc && bm_underrun_protect) {
 		port->tx_fc = tx_pause;
 		if (tx_pause)
 			mvpp2_rxq_enable_fc(port);
