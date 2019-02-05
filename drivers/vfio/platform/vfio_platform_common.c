@@ -120,15 +120,17 @@ static int vfio_platform_get_reset(struct vfio_platform_device *vdev)
 {
 	if (VFIO_PLATFORM_IS_ACPI(vdev))
 		return vfio_platform_acpi_has_reset(vdev) ? 0 : -ENOENT;
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	vdev->of_reset = vfio_platform_lookup_reset(vdev->compat,
 						    &vdev->reset_module);
+		 pr_err ("%s (%d)\n", __func__, __LINE__);
 	if (!vdev->of_reset) {
 		request_module("vfio-reset:%s", vdev->compat);
+			 pr_err ("%s (%d)\n", __func__, __LINE__);
 		vdev->of_reset = vfio_platform_lookup_reset(vdev->compat,
 							&vdev->reset_module);
 	}
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	return vdev->of_reset ? 0 : -ENOENT;
 }
 
@@ -637,6 +639,7 @@ static int vfio_platform_of_probe(struct vfio_platform_device *vdev,
 
 	ret = device_property_read_string(dev, "compatible",
 					  &vdev->compat);
+		 pr_err ("%s compat=%s\n", __func__, vdev->compat);
 	if (ret)
 		pr_err("VFIO: Cannot retrieve compat for %s\n", vdev->name);
 

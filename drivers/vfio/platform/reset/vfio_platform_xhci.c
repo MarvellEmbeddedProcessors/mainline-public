@@ -43,7 +43,7 @@ int vfio_platform_xhci_reset(struct vfio_platform_device *vdev)
 	struct clk *clk;
 	struct usb_phy *usb_phy;
 	int ret, i;
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	for (i = 0; i < MAX_XHCI_CLOCKS; i++) {
 		clk = of_clk_get(np, i);
 		if (!IS_ERR(clk)) {
@@ -52,14 +52,15 @@ int vfio_platform_xhci_reset(struct vfio_platform_device *vdev)
 				return -ENODEV;
 		}
 	}
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	usb_phy = devm_usb_get_phy_by_phandle(dev, "usb-phy", 0);
 	if (!IS_ERR(usb_phy)) {
 		ret = usb_phy_init(usb_phy);
 		if (ret)
 			return -ENODEV;
 	}
-
+	
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	return 0;
 }
 

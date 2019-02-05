@@ -121,7 +121,7 @@ struct iommu_group *vfio_iommu_group_get(struct device *dev)
 	int __maybe_unused ret;
 
 	group = iommu_group_get(dev);
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 #ifdef CONFIG_VFIO_NOIOMMU
 	/*
 	 * With noiommu enabled, an IOMMU group will be created for a device
@@ -131,7 +131,7 @@ struct iommu_group *vfio_iommu_group_get(struct device *dev)
 	 */
 	if (group || !noiommu || iommu_present(dev->bus))
 		return group;
-
+	 pr_err ("%s (%d)\n", __func__, __LINE__);
 	group = iommu_group_alloc();
 	if (IS_ERR(group))
 		return NULL;
@@ -155,7 +155,7 @@ struct iommu_group *vfio_iommu_group_get(struct device *dev)
 	add_taint(TAINT_USER, LOCKDEP_STILL_OK);
 	dev_warn(dev, "Adding kernel taint for vfio-noiommu group on device\n");
 #endif
-
+	pr_err ("%s (%d) %px\n", __func__, __LINE__, group);
 	return group;
 }
 EXPORT_SYMBOL_GPL(vfio_iommu_group_get);
