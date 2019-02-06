@@ -106,3 +106,17 @@
 	 */
 	status = "disabled";
 };
+
+&cp0_usb3_0 {
+	iommus = <&smmu 0x440>;
+};
+&cp0_usb3_1 {
+	iommus = <&smmu 0x441>;
+};
+
+&cp1_usb3_0 {
+	iommus = <&smmu 0x450>;
+};
+&cp1_usb3_1 {
+	iommus = <&smmu 0x451>;
+};
