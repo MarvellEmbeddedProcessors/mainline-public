@@ -1066,14 +1066,79 @@ static int phy_poll_reset(struct phy_device *phydev)
  * straightforward to maintain, since PHYs and MACs are subject to quirks and
  * erratas. This function re-builds the list of the supported pause parameters
  * by taking into account the parameters expressed in the driver's features
- * list.
+ * list. It also sets the generic bits indicating Twisted Pair, Fibre and
+ * Backaplane link modes support based on the detailed list that can be built
+ * from the PHY's ability list.
  */
 static void phy_update_linkmodes(struct phy_device *phydev)
 {
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(phy_baset_features) = { 0, };
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(phy_fibre_features) = { 0, };
+	__ETHTOOL_DECLARE_LINK_MODE_MASK(phy_backplane_features) = { 0, };
 	struct device_driver *drv = phydev->mdio.dev.driver;
 	struct phy_driver *phydrv = to_phy_driver(drv);
 
+	const int phy_baset_features_array[] = {
+		ETHTOOL_LINK_MODE_10baseT_Half_BIT,
+		ETHTOOL_LINK_MODE_10baseT_Full_BIT,
+		ETHTOOL_LINK_MODE_100baseT_Half_BIT,
+		ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+		ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
+		ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+	};
+
+	const int phy_fibre_features_array[] = {
+		ETHTOOL_LINK_MODE_40000baseSR4_Full_BIT,
+		ETHTOOL_LINK_MODE_40000baseLR4_Full_BIT,
+		ETHTOOL_LINK_MODE_56000baseSR4_Full_BIT,
+		ETHTOOL_LINK_MODE_56000baseLR4_Full_BIT,
+		ETHTOOL_LINK_MODE_25000baseSR_Full_BIT,
+		ETHTOOL_LINK_MODE_100000baseSR4_Full_BIT,
+		ETHTOOL_LINK_MODE_100000baseLR4_ER4_Full_BIT,
+		ETHTOOL_LINK_MODE_50000baseSR2_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseSR_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseLR_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseLRM_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseER_Full_BIT,
+	};
+
+	const int phy_backplane_features_array[] = {
+		ETHTOOL_LINK_MODE_1000baseKX_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
+		ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
+		ETHTOOL_LINK_MODE_20000baseKR2_Full_BIT,
+		ETHTOOL_LINK_MODE_40000baseKR4_Full_BIT,
+		ETHTOOL_LINK_MODE_56000baseKR4_Full_BIT,
+		ETHTOOL_LINK_MODE_25000baseKR_Full_BIT,
+		ETHTOOL_LINK_MODE_50000baseKR2_Full_BIT,
+		ETHTOOL_LINK_MODE_100000baseKR4_Full_BIT,
+	};
+
+	linkmode_set_bit_array(phy_baset_features_array,
+			       ARRAY_SIZE(phy_baset_features_array),
+			       phy_baset_features);
+
+	linkmode_set_bit_array(phy_fibre_features_array,
+			       ARRAY_SIZE(phy_fibre_features_array),
+			       phy_fibre_features);
+
+	linkmode_set_bit_array(phy_backplane_features_array,
+			       ARRAY_SIZE(phy_backplane_features_array),
+			       phy_backplane_features);
+
 	mutex_lock(&phydev->lock);
+
+	if (linkmode_intersects(phydev->supported, phy_baset_features))
+		linkmode_set_bit(ETHTOOL_LINK_MODE_TP_BIT, phydev->supported);
+
+	if (linkmode_intersects(phydev->supported, phy_fibre_features))
+		linkmode_set_bit(ETHTOOL_LINK_MODE_FIBRE_BIT,
+				 phydev->supported);
+
+	if (linkmode_intersects(phydev->supported, phy_backplane_features))
+		linkmode_set_bit(ETHTOOL_LINK_MODE_Backplane_BIT,
+				 phydev->supported);
 
 	/* The Pause Frame bits indicate that the PHY can support passing
 	 * pause frames. During autonegotiation, the PHYs will determine if
