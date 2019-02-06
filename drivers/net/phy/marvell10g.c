@@ -232,6 +232,23 @@ static int mv3310_resume(struct phy_device *phydev)
 	return mv3310_hwmon_config(phydev, true);
 }
 
+/* Some PHYs in the Alaska family such as the 88X3310 and the 88E2010
+ * don't set bit 14 in PMA Extended Abilities (1.11), although they do
+ * support 2.5GBASET and 5GBASET. For these models, we can still read their
+ * 2.5G/5G extended abilities register (1.21). We detect these models based on
+ * the PMA device identifier, with a mask matching models known to have this
+ * issue
+ */
+static bool mv3310_has_pma_ngbaset_quirk(struct phy_device *phydev)
+{
+	if (!(phydev->c45_ids.devices_in_package & MDIO_DEVS_PMAPMD))
+		return false;
+
+	/* Only some revisions of the 88X3310 family PMA seem to be impacted */
+	return (phydev->c45_ids.device_ids[MDIO_MMD_PMAPMD] & 0xfffffffe) ==
+	       (MARVELL_PHY_ID_88X3310 & 0xfffffffe);
+}
+
 static int mv3310_config_init(struct phy_device *phydev)
 {
 	int ret, val;
@@ -260,6 +277,20 @@ static int mv3310_config_init(struct phy_device *phydev)
 	ret = genphy_c45_pma_read_abilities(phydev);
 	if (ret)
 		return ret;
+
+	if (mv3310_has_pma_ngbaset_quirk(phydev)) {
+		val = phy_read_mmd(phydev, MDIO_MMD_PMAPMD,
+				   MDIO_PMA_NG_EXTABLE);
+		if (val < 0)
+			return val;
+
+		if (val & MDIO_PMA_NG_EXTABLE_2_5GBT)
+			__set_bit(ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+				  phydev->supported);
+		if (val & MDIO_PMA_NG_EXTABLE_5GBT)
+			__set_bit(ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+				  phydev->supported);
+	}
 
 	return 0;
 }
