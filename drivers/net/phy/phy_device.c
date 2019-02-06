@@ -1059,6 +1059,59 @@ static int phy_poll_reset(struct phy_device *phydev)
 	return 0;
 }
 
+/**
+ * phy_update_linkmodes - Update and sanitize linkmodes and pause parameters
+ * @phydev: The PHY device whose parameters we want to update.
+ *
+ * Description: The list of supported and advertised linkmodes is not
+ * straightforward to maintain, since PHYs and MACs are subject to quirks and
+ * erratas. This function re-builds the list of the supported pause parameters
+ * by taking into account the parameters expressed in the driver's features
+ * list.
+ */
+static void phy_update_linkmodes(struct phy_device *phydev)
+{
+	struct device_driver *drv = phydev->mdio.dev.driver;
+	struct phy_driver *phydrv = to_phy_driver(drv);
+
+	mutex_lock(&phydev->lock);
+
+	/* The Pause Frame bits indicate that the PHY can support passing
+	 * pause frames. During autonegotiation, the PHYs will determine if
+	 * they should allow pause frames to pass.  The MAC driver should then
+	 * use that result to determine whether to enable flow control via
+	 * pause frames.
+	 *
+	 * Normally, PHY drivers should not set the Pause bits, and instead
+	 * allow phylib to do that.  However, there may be some situations
+	 * (e.g. hardware erratum) where the driver wants to set only one
+	 * of these bits.
+	 */
+	if (test_bit(ETHTOOL_LINK_MODE_Pause_BIT, phydrv->features) ||
+	    test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT, phydrv->features)) {
+		linkmode_clear_bit(ETHTOOL_LINK_MODE_Pause_BIT,
+				   phydev->supported);
+		linkmode_clear_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+				   phydev->supported);
+		if (test_bit(ETHTOOL_LINK_MODE_Pause_BIT, phydrv->features))
+			linkmode_set_bit(ETHTOOL_LINK_MODE_Pause_BIT,
+					 phydev->supported);
+		if (test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+			     phydrv->features))
+			linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+					 phydev->supported);
+	} else {
+		linkmode_set_bit(ETHTOOL_LINK_MODE_Pause_BIT,
+				 phydev->supported);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
+				 phydev->supported);
+	}
+
+	linkmode_copy(phydev->advertising, phydev->supported);
+
+	mutex_unlock(&phydev->lock);
+}
+
 int phy_init_hw(struct phy_device *phydev)
 {
 	int ret = 0;
@@ -1081,6 +1134,11 @@ int phy_init_hw(struct phy_device *phydev)
 
 	if (phydev->drv->config_init)
 		ret = phydev->drv->config_init(phydev);
+
+	/* Update and sanitize the supported and advertised linkmodes, since
+	 * they might have been changed in config_init
+	 */
+	phy_update_linkmodes(phydev);
 
 	return ret;
 }
@@ -2220,37 +2278,6 @@ static int phy_probe(struct device *dev)
 	 * the PHY stop advertising these mode later on
 	 */
 	of_set_phy_eee_broken(phydev);
-
-	/* The Pause Frame bits indicate that the PHY can support passing
-	 * pause frames. During autonegotiation, the PHYs will determine if
-	 * they should allow pause frames to pass.  The MAC driver should then
-	 * use that result to determine whether to enable flow control via
-	 * pause frames.
-	 *
-	 * Normally, PHY drivers should not set the Pause bits, and instead
-	 * allow phylib to do that.  However, there may be some situations
-	 * (e.g. hardware erratum) where the driver wants to set only one
-	 * of these bits.
-	 */
-	if (test_bit(ETHTOOL_LINK_MODE_Pause_BIT, phydrv->features) ||
-	    test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT, phydrv->features)) {
-		linkmode_clear_bit(ETHTOOL_LINK_MODE_Pause_BIT,
-				   phydev->supported);
-		linkmode_clear_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
-				   phydev->supported);
-		if (test_bit(ETHTOOL_LINK_MODE_Pause_BIT, phydrv->features))
-			linkmode_set_bit(ETHTOOL_LINK_MODE_Pause_BIT,
-					 phydev->supported);
-		if (test_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
-			     phydrv->features))
-			linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
-					 phydev->supported);
-	} else {
-		linkmode_set_bit(ETHTOOL_LINK_MODE_Pause_BIT,
-				 phydev->supported);
-		linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT,
-				 phydev->supported);
-	}
 
 	/* Set the state to READY by default */
 	phydev->state = PHY_READY;
