@@ -97,6 +97,8 @@
 #define     MVPP2_CLS_FLOW_TBL0_ENG(x)		((x) << 1)
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID_MASK	0xff
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID(port)	((port) << 4)
+#define     MVPP2_CLS_FLOW_TBL0_VLAN_MASK	0x7
+#define     MVPP2_CLS_FLOW_TBL0_VLAN(x)		((x) << 16)
 #define     MVPP2_CLS_FLOW_TBL0_PORT_ID_SEL	BIT(23)
 #define MVPP2_CLS_FLOW_TBL1_REG			0x1828
 #define     MVPP2_CLS_FLOW_TBL1_N_FIELDS_MASK	0x7
@@ -126,6 +128,19 @@
 #define MVPP22_CLS_C2_TCAM_DATA4		0x1b20
 #define     MVPP22_CLS_C2_LU_TYPE(lu)		((lu) & 0x3f)
 #define     MVPP22_CLS_C2_PORT_ID(port)		((port) << 8)
+#define MVPP22_CLS_C2_ACT_TABLE			0x1b30
+#define MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL	BIT(10)
+#define MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL	BIT(9)
+#define MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL	BIT(7)
+#define MVPP22_CLS_C2_ACT_TABLE_DSCP_SEL	BIT(6)
+#define MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(tbl)	((tbl) & 0x3f)
+#define MVPP22_CLS_QOS_IDX			0x1b40
+#define	    MVPP22_CLS_QOS_TBL_NO(no)		(((no) & 0x3f) << 8)
+#define     MVPP22_CLS_QOS_DSCP_SEL		BIT(6)
+#define     MVPP22_CLS_QOS_PRI_IDX(idx) 	((idx) & 0x7)
+#define MVPP22_CLS_QOS				0x1b44
+#define     MVPP22_CLS_QOS_RXQ(rxq)		(((rxq) & 0xff) << 24)
+#define     MVPP22_CLS_QOS_PRI(pri)		((pri) & 0x7)
 #define MVPP22_CLS_C2_HIT_CTR			0x1b50
 #define MVPP22_CLS_C2_ACT			0x1b60
 #define     MVPP22_CLS_C2_ACT_RSS_EN(act)	(((act) & 0x3) << 19)
@@ -615,6 +630,10 @@
 #define MVPP22_N_RSS_TABLES		8
 #define MVPP22_RSS_TABLE_ENTRIES	32
 
+/* QoS constants */
+#define MVPP22_QOS_N_ENTRIES		8
+#define MVPP22_QOS_NO_ENTRY		(-1)
+
 /* IPv6 max L3 address size */
 #define MVPP2_MAX_L3_ADDR_SIZE		16
 
@@ -779,6 +798,11 @@ struct mvpp2 {
 
 	/* RSS Indirection tables */
 	struct mvpp2_rss_table *rss_tables[MVPP22_N_RSS_TABLES];
+
+	/* Index of the first free element in the flow table in each lookup
+	 * sequence.
+	 */
+	u16 flow_table_seq_first_free[MVPP2_N_PRS_FLOWS];
 };
 
 struct mvpp2_pcpu_stats {
@@ -808,6 +832,55 @@ struct mvpp2_queue_vector {
 	u32 pending_cause_rx;
 	struct mvpp2_port *port;
 	struct cpumask *mask;
+};
+
+#define MVPP2_RFS_ACT_TO_RXQ	0
+#define MVPP2_RFS_ACT_TO_RSS	1
+#define MVPP2_RFS_ACT_DROP	2
+
+#define MVPP2_RFS_F_VLAN_QOS	BIT(0)
+#define MVPP2_RFS_F_DSCP_QOS	BIT(1)
+
+#define MVPP2_CLS_ALL_FLOWS	(-1)
+#define MVPP2_CLS_TAGGED_ONLY	(-2)
+
+/* Internal represention of an Accelerated Resource Flow Steering flow.
+ *
+ * This struct is expected to grow as we add more RFS features.
+ */
+struct mvpp2_rfs_rule {
+
+	/* Flow location, must be unique per port. This is a way to prioritize
+	 * flows */
+	int loc;
+
+	/* Flow type, from ethtool. Can also take special values, such as
+	 * MVPP2_CLS_ALL_FLOWS and MVPP2_CLS_TAGGED_ONLY.*/
+	int flow_type;
+
+	/* Header fields that needs to be extracted to match this flow */
+	u16 hek_fields;
+
+	/* TCAM key and mask for C2-based steering. These fields should be
+	 * encapsulated in a union should we add more engines.
+	 */
+	u64 c2_tcam;
+	u64 c2_tcam_mask;
+
+	/* Flags for non-TCAM matches, such as priority-based steering. */
+	u16 flags;
+
+	/* VLAN or DSCP prio */
+	u8 pri;
+
+	/* CLS engine : only c2 is supported for now. */
+	u8 engine;
+
+	/* Destination for the flow. Can be an RxQ or an RSS table */
+	u8 dst;
+
+	/* Action type : Drop the frame, or steer it to the RxQ/RSS table. */
+	u8 action;
 };
 
 struct mvpp2_port {
@@ -883,6 +956,8 @@ struct mvpp2_port {
 	 * them from 0
 	 */
 	int rss_ctx[MVPP22_N_RSS_TABLES];
+
+	int n_c2_rules;
 };
 
 /* The mvpp2_tx_desc and mvpp2_rx_desc structures describe the

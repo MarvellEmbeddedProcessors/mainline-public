@@ -89,6 +89,17 @@ enum mvpp2_cls_flow_seq {
 	MVPP2_CLS_FLOW_SEQ_MIDDLE
 };
 
+enum mvpp22_cls_flow_tag {
+	MVPP22_CLS_FLOW_VLAN_ALWAYS_EXEC = 0,	/* Always execute the lookup */
+	MVPP22_CLS_FLOW_VLAN_TAGGED1,		/* Exec if 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED2,		/* Exec if 2 tags */
+	MVPP22_CLS_FLOW_VLAN_TAGGED3,		/* Exec if 3 tags */
+	MVPP22_CLS_FLOW_VLAN_UNTAGGED,		/* Exec if no tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED,		/* Exec if at least 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED01,		/* Exec if 0 or 1 tag */
+	MVPP22_CLS_FLOW_VLAN_TAGGED23		/* Exec if 2 or 3 tags */
+};
+
 /* Classifier C2 engine constants */
 #define MVPP22_CLS_C2_TCAM_EN(data)		((data) << 16)
 
@@ -279,5 +290,11 @@ u32 mvpp2_cls_c2_hit_count(struct mvpp2 *priv, int c2_index);
 
 void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 		       struct mvpp2_cls_c2_entry *c2);
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
+
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
 
 #endif
