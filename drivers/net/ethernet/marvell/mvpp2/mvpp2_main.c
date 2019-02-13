@@ -4378,6 +4378,7 @@ static void mvpp2_phylink_validate(struct net_device *dev,
 		if (port->gop_id != 0)
 			goto empty_set;
 		break;
+	case PHY_INTERFACE_MODE_GMII:
 	case PHY_INTERFACE_MODE_RGMII:
 	case PHY_INTERFACE_MODE_RGMII_ID:
 	case PHY_INTERFACE_MODE_RGMII_RXID:
@@ -4409,6 +4410,7 @@ static void mvpp2_phylink_validate(struct net_device *dev,
 			phylink_set(mask, 10000baseKR_Full);
 		}
 		/* Fall-through */
+	case PHY_INTERFACE_MODE_GMII:
 	case PHY_INTERFACE_MODE_RGMII:
 	case PHY_INTERFACE_MODE_RGMII_ID:
 	case PHY_INTERFACE_MODE_RGMII_RXID:
