@@ -430,6 +430,8 @@
 #define MVPP22_XLG_CTRL0_REG			0x100
 #define     MVPP22_XLG_CTRL0_PORT_EN		BIT(0)
 #define     MVPP22_XLG_CTRL0_MAC_RESET_DIS	BIT(1)
+#define     MVPP22_XLG_CTRL0_FORCE_LINK_DOWN	BIT(2)
+#define     MVPP22_XLG_CTRL0_FORCE_LINK_PASS	BIT(3)
 #define     MVPP22_XLG_CTRL0_RX_FLOW_CTRL_EN	BIT(7)
 #define     MVPP22_XLG_CTRL0_TX_FLOW_CTRL_EN	BIT(8)
 #define     MVPP22_XLG_CTRL0_MIB_CNT_DIS	BIT(14)
@@ -482,6 +484,7 @@
 /* XPCS registers. PPv2.2 only */
 #define MVPP22_XPCS_BASE(port)			(0x7400 + (port) * 0x1000)
 #define MVPP22_XPCS_CFG0			0x0
+#define     MVPP22_XPCS_CFG0_RESET_DIS		BIT(0)
 #define     MVPP22_XPCS_CFG0_PCS_MODE(n)	((n) << 3)
 #define     MVPP22_XPCS_CFG0_ACTIVE_LANE(n)	((n) << 5)
 
