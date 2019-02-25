@@ -346,6 +346,7 @@ static int dsa_port_setup_phy_of(struct dsa_port *dp, bool enable)
 	struct phy_device *phydev;
 	int port = dp->index;
 	int err = 0;
+	pr_info("%s\n", __func__);
 
 	phydev = dsa_port_get_phy_device(dp);
 	if (!phydev)
@@ -390,6 +391,7 @@ static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
 	int port = dp->index;
 	int mode;
 	int err;
+	pr_info("%s\n", __func__);
 
 	err = of_phy_register_fixed_link(dn);
 	if (err) {
@@ -413,6 +415,7 @@ static int dsa_port_fixed_link_register_of(struct dsa_port *dp)
 		ds->ops->adjust_link(ds, port, phydev);
 
 	put_device(&phydev->mdio.dev);
+	pr_info("%s Complete\n", __func__);
 
 	return 0;
 }

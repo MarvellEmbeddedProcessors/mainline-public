@@ -201,6 +201,7 @@ static int mvebu_comphy_power_on(struct phy *phy)
 		ret = data->comphy_smc(MV_SIP_COMPHY_POWER_ON, priv->phys,
 				 lane->id + 1,
 				 COMPHY_FW_MODE_FORMAT(COMPHY_RXAUI_MODE));
+		pr_info("%s : enabling RXAUI\n", __func__);
 		break;
 	default:
 		return -ENOTSUPP;

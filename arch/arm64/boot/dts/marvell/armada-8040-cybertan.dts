@@ -249,13 +249,10 @@
 				label = "cpu";
 				ethernet = <&cp1_eth0>;
 				phy-mode = "rxaui";
-				/*
 				fixed-link {
 					speed = <10000>;
 					full-duplex;
 				};
-				*/
-				phy-handle = <&switch0port9>;
 			};
 			/*
 			port10: port@10 {
@@ -319,10 +316,9 @@
 				label = "lan4";
 				phy-handle = <&switch0port8>;
 			};
-
 		};
 
-		mdio-bus {
+		mdio {
 			#address-cells = <1>;
 			#size-cells = <0>;
 			switch0port1: switch0port@1 {
@@ -419,11 +415,13 @@
 
 	phy-mode = "rxaui";
 	phys = <&cp1_comphy4 0>, <&cp1_comphy5 0>;
-//	managed = "in-band-status";
+	managed = "in-band-status";
+	/*
 	fixed-link {
 		speed = <10000>;
 		full-duplex;
 	};
+	*/
 };
 
 &cp1_eth1 {

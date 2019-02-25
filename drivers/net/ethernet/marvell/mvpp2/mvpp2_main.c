@@ -1199,11 +1199,13 @@ static void mvpp2_port_enable(struct mvpp2_port *port)
 
 	/* Only GOP port 0 has an XLG MAC */
 	if (port->gop_id == 0 && mvpp2_is_xlg(port->phy_interface)) {
+		pr_info("%s : Enabling XLGMAC\n", __func__);
 		val = readl(port->base + MVPP22_XLG_CTRL0_REG);
 		val |= MVPP22_XLG_CTRL0_PORT_EN;
 		val &= ~MVPP22_XLG_CTRL0_MIB_CNT_DIS;
 		writel(val, port->base + MVPP22_XLG_CTRL0_REG);
 	} else {
+		pr_info("%s : Enabling GMAC\n", __func__);
 		val = readl(port->base + MVPP2_GMAC_CTRL_0_REG);
 		val |= MVPP2_GMAC_PORT_EN_MASK;
 		val |= MVPP2_GMAC_MIB_CNTR_EN_MASK;
@@ -4513,6 +4515,18 @@ static void mvpp22_xlg_link_state(struct mvpp2_port *port,
 		state->pause |= MLO_PAUSE_TX;
 	if (val & MVPP22_XLG_CTRL0_RX_FLOW_CTRL_EN)
 		state->pause |= MLO_PAUSE_RX;
+
+	pr_info("XLG link is %s\n", state->link ? "Up" : "Down");
+
+	int i = 50;
+
+	while (i--) {
+		msleep(10);
+
+		val = readl(port->base + MVPP22_XLG_STATUS);
+		state->link = !!(val & MVPP22_XLG_STATUS_LINK_UP);
+		pr_info("XLG link is %s\n", state->link ? "Up" : "Down");
+	}
 }
 
 static void mvpp2_gmac_link_state(struct mvpp2_port *port,
@@ -4607,6 +4621,7 @@ static void mvpp2_xlg_config(struct mvpp2_port *port, unsigned int mode,
 		ctrl4 |= MVPP22_XLG_CTRL4_USE_XPCS;
 	else
 		ctrl4 |= MVPP22_XLG_CTRL4_EN_IDLE_CHECK;
+	ctrl4 |= MVPP22_XLG_CTRL4_EN_IDLE_CHECK;
 
 	writel(ctrl0, port->base + MVPP22_XLG_CTRL0_REG);
 	writel(ctrl4, port->base + MVPP22_XLG_CTRL4_REG);

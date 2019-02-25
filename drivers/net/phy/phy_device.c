@@ -1755,7 +1755,15 @@ int genphy_read_status(struct phy_device *phydev)
 
 	linkmode_zero(phydev->lp_advertising);
 
-	if (AUTONEG_ENABLE == phydev->autoneg) {
+	if (phydev->interface == PHY_INTERFACE_MODE_2500BASEX) {
+		 phydev->speed = SPEED_2500;
+		 phydev->duplex = DUPLEX_FULL;
+		 phydev->link = 1;
+	} else if (phydev->interface == PHY_INTERFACE_MODE_RXAUI) {
+		phydev->speed = SPEED_10000;
+		phydev->duplex = DUPLEX_FULL;
+		phydev->link = 1;
+	} else if (AUTONEG_ENABLE == phydev->autoneg) {
 		if (linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
 				      phydev->supported) ||
 		    linkmode_test_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
@@ -1850,6 +1858,19 @@ int genphy_config_init(struct phy_device *phydev)
 	linkmode_set_bit(ETHTOOL_LINK_MODE_Pause_BIT, features);
 	linkmode_set_bit(ETHTOOL_LINK_MODE_Asym_Pause_BIT, features);
 
+	if (phydev->interface == PHY_INTERFACE_MODE_RXAUI) {
+		linkmode_set_bit(ETHTOOL_LINK_MODE_Autoneg_BIT, features);
+
+		linkmode_set_bit(ETHTOOL_LINK_MODE_100baseT_Full_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_100baseT_Half_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10baseT_Full_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10baseT_Half_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_1000baseT_Full_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_1000baseT_Half_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_2500baseT_Full_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_5000baseT_Full_BIT, features);
+		linkmode_set_bit(ETHTOOL_LINK_MODE_10000baseT_Full_BIT, features);
+	}
 	/* Do we support autonegotiation? */
 	val = phy_read(phydev, MII_BMSR);
 	if (val < 0)

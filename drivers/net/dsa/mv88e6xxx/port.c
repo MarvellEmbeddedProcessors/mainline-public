@@ -375,7 +375,7 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	 * other ports which might use them for SFPs.
 	 */
 	if (mode == PHY_INTERFACE_MODE_NA)
-		mode = PHY_INTERFACE_MODE_1000BASEX;
+		mode = PHY_INTERFACE_MODE_RXAUI;
 
 	switch (mode) {
 	case PHY_INTERFACE_MODE_1000BASEX:
