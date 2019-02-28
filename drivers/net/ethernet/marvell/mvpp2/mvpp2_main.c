@@ -1044,6 +1044,13 @@ static void mvpp22_gop_init_rxaui(struct mvpp2_port *port)
 		 MVPP22_XPCS_CFG0_ACTIVE_LANE(0x3));
 	val |= MVPP22_XPCS_CFG0_ACTIVE_LANE(2);
 	writel(val, xpcs + MVPP22_XPCS_CFG0);
+
+	regmap_read(priv->sysctrl_base, GENCONF_SD1_CTRL1, &val);
+	val &= ~(GENCONF_SD1_CTRL1_RXAUI1_EN |
+		 GENCONF_SD1_CTRL1_RXAUI0_EN |
+		 GENCONF_SD1_CTRL1_XAUI_EN);
+	val |= GENCONF_SD1_CTRL1_RXAUI1_EN;
+	regmap_write(priv->sysctrl_base, GENCONF_SD1_CTRL1, val);
 }
 
 static int mvpp22_gop_init(struct mvpp2_port *port)
@@ -1185,10 +1192,23 @@ static int mvpp22_comphy_init(struct mvpp2_port *port)
 	if (!port->comphy)
 		return 0;
 
+	if (port->comphy2) {
+		ret = phy_set_mode_ext(port->comphy2, PHY_MODE_ETHERNET,
+				       port->phy_interface);
+		if (ret)
+			return ret;
+	}
+
 	ret = phy_set_mode_ext(port->comphy, PHY_MODE_ETHERNET,
 			       port->phy_interface);
 	if (ret)
 		return ret;
+
+	if (port->comphy2) {
+		ret = phy_power_on(port->comphy2);
+		if (ret)
+			return ret;
+	}
 
 	return phy_power_on(port->comphy);
 }
@@ -1216,17 +1236,18 @@ static void mvpp2_port_enable(struct mvpp2_port *port)
 static void mvpp2_port_disable(struct mvpp2_port *port)
 {
 	u32 val;
+	pr_info("%s\n", __func__);
 
 	/* Only GOP port 0 has an XLG MAC */
-	if (port->gop_id == 0 && mvpp2_is_xlg(port->phy_interface)) {
+	//if (port->gop_id == 0 && mvpp2_is_xlg(port->phy_interface)) {
 		val = readl(port->base + MVPP22_XLG_CTRL0_REG);
 		val &= ~MVPP22_XLG_CTRL0_PORT_EN;
 		writel(val, port->base + MVPP22_XLG_CTRL0_REG);
-	} else {
+	//} else {
 		val = readl(port->base + MVPP2_GMAC_CTRL_0_REG);
 		val &= ~(MVPP2_GMAC_PORT_EN_MASK);
 		writel(val, port->base + MVPP2_GMAC_CTRL_0_REG);
-	}
+	//}
 }
 
 /* Set IEEE 802.3x Flow Control Xon Packet Transmission Mode */
@@ -3279,6 +3300,10 @@ static void mvpp2_stop_dev(struct mvpp2_port *port)
 
 	mvpp2_mac_reset(port);
 	mvpp22_pcs_reset(port);
+
+	if (port->comphy2)
+		phy_power_off(port->comphy2);
+
 	phy_power_off(port->comphy);
 }
 
@@ -4517,16 +4542,6 @@ static void mvpp22_xlg_link_state(struct mvpp2_port *port,
 		state->pause |= MLO_PAUSE_RX;
 
 	pr_info("XLG link is %s\n", state->link ? "Up" : "Down");
-
-	int i = 50;
-
-	while (i--) {
-		msleep(10);
-
-		val = readl(port->base + MVPP22_XLG_STATUS);
-		state->link = !!(val & MVPP22_XLG_STATUS_LINK_UP);
-		pr_info("XLG link is %s\n", state->link ? "Up" : "Down");
-	}
 }
 
 static void mvpp2_gmac_link_state(struct mvpp2_port *port,
@@ -4787,6 +4802,10 @@ static void mvpp2_mac_config(struct net_device *dev, unsigned int mode,
 		port->phy_interface = state->interface;
 
 		/* Reconfigure the serdes lanes */
+
+		if (port->comphy2)
+			phy_power_off(port->comphy2);
+
 		phy_power_off(port->comphy);
 		mvpp22_mode_reconfigure(port);
 	}
@@ -4883,7 +4902,7 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 			    struct fwnode_handle *port_fwnode,
 			    struct mvpp2 *priv)
 {
-	struct phy *comphy = NULL;
+	struct phy *comphy = NULL, *comphy2 = NULL;
 	struct mvpp2_port *port;
 	struct mvpp2_port_pcpu *port_pcpu;
 	struct device_node *port_node = to_of_node(port_fwnode);
@@ -4940,6 +4959,13 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 			}
 			comphy = NULL;
 		}
+		comphy2 = devm_of_phy_get_by_index(&pdev->dev, port_node, 1);
+		if (IS_ERR(comphy)) {
+			pr_info("No second comphy lane found\n");
+			comphy2 = NULL;
+		} else {
+			pr_info("Found a second comphy lane\n");
+		}
 	}
 
 	if (fwnode_property_read_u32(port_fwnode, "port-id", &id)) {
@@ -4991,6 +5017,11 @@ static int mvpp2_port_probe(struct platform_device *pdev,
 	port->of_node = port_node;
 	port->phy_interface = phy_mode;
 	port->comphy = comphy;
+	port->comphy2 = comphy2;
+
+	if (phy_mode == PHY_INTERFACE_MODE_RXAUI && !port->comphy2) {
+		pr_err("%s : Need 2 comphy lanes for RXAUI\n", __func__);
+	}
 
 	if (priv->hw_version == MVPP21) {
 		res = platform_get_resource(pdev, IORESOURCE_MEM, 2 + id);

@@ -502,6 +502,10 @@
 #define     GENCONF_CTRL0_PORT0_RGMII			BIT(0)
 #define     GENCONF_CTRL0_PORT1_RGMII_MII		BIT(1)
 #define     GENCONF_CTRL0_PORT1_RGMII			BIT(2)
+#define GENCONF_SD1_CTRL1				0x1148
+#define     GENCONF_SD1_CTRL1_RXAUI1_EN			BIT(26)
+#define     GENCONF_SD1_CTRL1_RXAUI0_EN			BIT(27)
+#define     GENCONF_SD1_CTRL1_XAUI_EN			BIT(28)
 
 /* Various constants */
 
@@ -859,6 +863,7 @@ struct mvpp2_port {
 	phy_interface_t phy_interface;
 	struct phylink *phylink;
 	struct phy *comphy;
+	struct phy *comphy2;
 
 	struct mvpp2_bm_pool *pool_long;
 	struct mvpp2_bm_pool *pool_short;
