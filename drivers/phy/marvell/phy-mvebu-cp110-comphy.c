@@ -22,6 +22,7 @@
 #define     MVEBU_COMPHY_SERDES_CFG0_PU_RX	BIT(11)
 #define     MVEBU_COMPHY_SERDES_CFG0_PU_TX	BIT(12)
 #define     MVEBU_COMPHY_SERDES_CFG0_HALF_BUS	BIT(14)
+#define     MVEBU_COMPHY_SERDES_CFG0_MEDIA_MODE_RXAUI	BIT(15)
 #define MVEBU_COMPHY_SERDES_CFG1(n)		(0x4 + (n) * 0x1000)
 #define     MVEBU_COMPHY_SERDES_CFG1_RESET	BIT(3)
 #define     MVEBU_COMPHY_SERDES_CFG1_RX_INIT	BIT(4)
@@ -150,8 +151,10 @@ static const struct mvebu_comphy_conf mvebu_comphy_cp110_modes[] = {
 	MVEBU_COMPHY_CONF(4, 0, PHY_INTERFACE_MODE_SGMII, 0x2),
 	MVEBU_COMPHY_CONF(4, 0, PHY_INTERFACE_MODE_2500BASEX, 0x2),
 	MVEBU_COMPHY_CONF(4, 0, PHY_INTERFACE_MODE_10GKR, 0x2),
+	MVEBU_COMPHY_CONF(4, 0, PHY_INTERFACE_MODE_RXAUI, 0x2),
 	MVEBU_COMPHY_CONF(4, 1, PHY_INTERFACE_MODE_SGMII, 0x1),
 	/* lane 5 */
+	MVEBU_COMPHY_CONF(5, 0, PHY_INTERFACE_MODE_RXAUI, 0x2),
 	MVEBU_COMPHY_CONF(5, 2, PHY_INTERFACE_MODE_SGMII, 0x1),
 	MVEBU_COMPHY_CONF(5, 2, PHY_INTERFACE_MODE_2500BASEX, 0x1),
 };
@@ -222,6 +225,10 @@ static void mvebu_comphy_ethernet_init_reset(struct mvebu_comphy_lane *lane)
 		val |= MVEBU_COMPHY_SERDES_CFG0_GEN_RX(0x6) |
 		       MVEBU_COMPHY_SERDES_CFG0_GEN_TX(0x6) |
 		       MVEBU_COMPHY_SERDES_CFG0_HALF_BUS;
+	else if (lane->submode == PHY_INTERFACE_MODE_RXAUI)
+		val |= MVEBU_COMPHY_SERDES_CFG0_GEN_RX(0xb) |
+		       MVEBU_COMPHY_SERDES_CFG0_GEN_TX(0xb) |
+		       MVEBU_COMPHY_SERDES_CFG0_MEDIA_MODE_RXAUI;
 	writel(val, priv->base + MVEBU_COMPHY_SERDES_CFG0(lane->id));
 
 	/* reset */
@@ -337,6 +344,61 @@ static int mvebu_comphy_set_mode_sgmii(struct phy *phy)
 	return mvebu_comphy_init_plls(lane);
 }
 
+static int mvebu_comphy_set_mode_rxaui(struct phy *phy)
+{
+	struct mvebu_comphy_lane *lane = phy_get_drvdata(phy);
+	struct mvebu_comphy_priv *priv = lane->priv;
+	u32 val;
+
+	pr_info("%s lane %d\n", __func__, lane->id);
+
+	mvebu_comphy_ethernet_init_reset(lane);
+
+	val = readl(priv->base + MVEBU_COMPHY_RX_CTRL1(lane->id));
+	val |= MVEBU_COMPHY_RX_CTRL1_RXCLK2X_SEL |
+	       MVEBU_COMPHY_RX_CTRL1_CLK8T_EN;
+	writel(val, priv->base + MVEBU_COMPHY_RX_CTRL1(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_DLT_CTRL(lane->id));
+	val |= MVEBU_COMPHY_DLT_CTRL_DTL_FLOOP_EN;
+	writel(val, priv->base + MVEBU_COMPHY_DLT_CTRL(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_SERDES_CFG2(lane->id));
+	val |= MVEBU_COMPHY_SERDES_CFG2_DFE_EN;
+	writel(val, priv->base + MVEBU_COMPHY_SERDES_CFG2(lane->id));
+
+	/* DFE resolution */
+	val = readl(priv->base + MVEBU_COMPHY_DFE_RES(lane->id));
+	val |= MVEBU_COMPHY_DFE_RES_FORCE_GEN_TBL;
+	writel(val, priv->base + MVEBU_COMPHY_DFE_RES(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_GEN1_S0(lane->id));
+	val &= ~(MVEBU_COMPHY_GEN1_S0_TX_EMPH(0xf));
+	val |= MVEBU_COMPHY_GEN1_S0_TX_EMPH(0xd);
+	writel(val, priv->base + MVEBU_COMPHY_GEN1_S0(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_GEN1_S1(lane->id));
+	val &= ~(MVEBU_COMPHY_GEN1_S1_RX_MUL_PI(0x7) |
+		 MVEBU_COMPHY_GEN1_S1_RX_MUL_PF(0x7) |
+		 MVEBU_COMPHY_GEN1_S1_RX_MUL_FI(0x3) |
+		 MVEBU_COMPHY_GEN1_S1_RX_MUL_FF(0x3));
+	val |= MVEBU_COMPHY_GEN1_S1_RX_DFE_EN |
+	       MVEBU_COMPHY_GEN1_S1_RX_MUL_PI(0x1);
+	       //MVEBU_COMPHY_GEN1_S1_RX_DIV(0x3);
+	writel(val, priv->base + MVEBU_COMPHY_GEN1_S1(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_COEF(lane->id));
+	val &= ~(MVEBU_COMPHY_COEF_DFE_EN | MVEBU_COMPHY_COEF_DFE_CTRL);
+	writel(val, priv->base + MVEBU_COMPHY_COEF(lane->id));
+
+	val = readl(priv->base + MVEBU_COMPHY_GEN1_S4(lane->id));
+	val &= ~MVEBU_COMPHY_GEN1_S4_DFE_RES(0x3);
+	val |= MVEBU_COMPHY_GEN1_S4_DFE_RES(0x1);
+	writel(val, priv->base + MVEBU_COMPHY_GEN1_S4(lane->id));
+
+	return mvebu_comphy_init_plls(lane);
+}
+
 static int mvebu_comphy_set_mode_10gkr(struct phy *phy)
 {
 	struct mvebu_comphy_lane *lane = phy_get_drvdata(phy);
@@ -351,7 +413,7 @@ static int mvebu_comphy_set_mode_10gkr(struct phy *phy)
 	writel(val, priv->base + MVEBU_COMPHY_RX_CTRL1(lane->id));
 
 	val = readl(priv->base + MVEBU_COMPHY_DLT_CTRL(lane->id));
-	val |= MVEBU_COMPHY_DLT_CTRL_DTL_FLOOP_EN;
+	val &= ~MVEBU_COMPHY_DLT_CTRL_DTL_FLOOP_EN;
 	writel(val, priv->base + MVEBU_COMPHY_DLT_CTRL(lane->id));
 
 	/* Speed divider */
@@ -483,6 +545,8 @@ static int mvebu_comphy_power_on(struct phy *phy)
 	int ret, mux;
 	u32 val;
 
+	pr_info("%s lane %d\n", __func__, lane->id);
+
 	mux = mvebu_comphy_get_mux(lane->id, lane->port,
 				   lane->mode, lane->submode);
 	if (mux < 0)
@@ -505,6 +569,9 @@ static int mvebu_comphy_power_on(struct phy *phy)
 	case PHY_INTERFACE_MODE_10GKR:
 		ret = mvebu_comphy_set_mode_10gkr(phy);
 		break;
+	case PHY_INTERFACE_MODE_RXAUI:
+		ret = mvebu_comphy_set_mode_rxaui(phy);
+		break;
 	default:
 		return -ENOTSUPP;
 	}
@@ -525,6 +592,8 @@ static int mvebu_comphy_set_mode(struct phy *phy,
 	if (mode != PHY_MODE_ETHERNET)
 		return -EINVAL;
 
+	pr_info("%s lane %d\n", __func__, lane->id);
+
 	if (submode == PHY_INTERFACE_MODE_1000BASEX)
 		submode = PHY_INTERFACE_MODE_SGMII;
 
@@ -541,6 +610,7 @@ static int mvebu_comphy_power_off(struct phy *phy)
 	struct mvebu_comphy_lane *lane = phy_get_drvdata(phy);
 	struct mvebu_comphy_priv *priv = lane->priv;
 	u32 val;
+	pr_info("%s lane %d\n", __func__, lane->id);
 
 	val = readl(priv->base + MVEBU_COMPHY_SERDES_CFG1(lane->id));
 	val &= ~(MVEBU_COMPHY_SERDES_CFG1_RESET |
