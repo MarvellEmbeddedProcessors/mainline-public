@@ -371,11 +371,13 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	if (port != 9 && port != 10)
 		return -EOPNOTSUPP;
 
+	pr_info("%s : %d\n", __func__, mode);
+
 	/* Default to a slow mode, so freeing up SERDES interfaces for
 	 * other ports which might use them for SFPs.
 	 */
 	if (mode == PHY_INTERFACE_MODE_NA)
-		mode = PHY_INTERFACE_MODE_RXAUI;
+		return 0;
 
 	switch (mode) {
 	case PHY_INTERFACE_MODE_1000BASEX:
@@ -399,16 +401,20 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 	}
 
 	lane = mv88e6390x_serdes_get_lane(chip, port);
-	if (lane < 0)
+	if (lane < 0) {
+		pr_info("%s : Can't get lane\n", __func__);
 		return lane;
+	}
 
 	if (chip->ports[port].serdes_irq) {
 		err = mv88e6390_serdes_irq_disable(chip, port, lane);
-		if (err)
+		if (err) {
+			pr_info("%s : Can't disable irq\n", __func__);
 			return err;
+		}
 	}
 
-	err = mv88e6390_serdes_power(chip, port, false);
+	err = mv88e6390x_serdes_power(chip, port, false);
 	if (err)
 		return err;
 
@@ -424,7 +430,7 @@ int mv88e6390x_port_set_cmode(struct mv88e6xxx_chip *chip, int port,
 		if (err)
 			return err;
 
-		err = mv88e6390_serdes_power(chip, port, true);
+		err = mv88e6390x_serdes_power(chip, port, true);
 		if (err)
 			return err;
 
