@@ -167,7 +167,6 @@ static int mvebu_comphy_power_on(struct phy *phy)
 
 	if (lane->mode != PHY_MODE_ETHERNET)
 		return -EINVAL;
-	pr_info("%s\n", __func__);
 
 	switch (lane->submode) {
 	case PHY_INTERFACE_MODE_SGMII:
@@ -223,7 +222,6 @@ static int mvebu_comphy_set_mode(struct phy *phy,
 
 	if (mode != PHY_MODE_ETHERNET)
 		return -EINVAL;
-	pr_info("%s\n", __func__);
 
 	lane->mode = mode;
 	lane->submode = submode;
@@ -238,7 +236,6 @@ static int mvebu_comphy_power_off(struct phy *phy)
 
 	if (lane->mode != PHY_MODE_ETHERNET)
 		return -EINVAL;
-	pr_info("%s\n", __func__);
 
 	if (lane->submode == PHY_INTERFACE_MODE_RXAUI) {
 		data->comphy_smc(MV_SIP_COMPHY_POWER_OFF, priv->phys,
@@ -357,32 +354,11 @@ static int mvebu_comphy_probe(struct platform_device *pdev)
 		lane->port = -1;
 		phy_set_drvdata(phy, lane);
 
-		if (lane->id == 4) {
-			lane->port = 0;
-			mvebu_comphy_set_mode(phy, PHY_MODE_ETHERNET, PHY_INTERFACE_MODE_RXAUI);
-			mvebu_comphy_power_off(phy);
-			mvebu_comphy_power_on(phy);
-
-			phy_destroy(phy);
-			phy = devm_phy_create(&pdev->dev, child,
-					      &mvebu_comphy_ops_deprecated);
-			phy_set_drvdata(phy, lane);
-
-
-		} else if (lane->id == 5) {
-			phy_destroy(phy);
-			phy = devm_phy_create(&pdev->dev, child,
-					      &mvebu_comphy_ops_deprecated);
-			phy_set_drvdata(phy, lane);
-
-		} else {
-			ret = mvebu_comphy_power_off(phy);
-		}
-
 		/*
 		 * To avoid relying on the bootloader/firmware configuration,
 		 * power off all comphys.
 		 */
+		ret = mvebu_comphy_power_off(phy);
 		if (ret == COMPHY_FW_NOT_SUPPORTED) {
 			dev_warn(&pdev->dev, "RELYING ON BOTLOADER SETTINGS\n");
 			dev_WARN(&pdev->dev, "firmware updated needed\n");
