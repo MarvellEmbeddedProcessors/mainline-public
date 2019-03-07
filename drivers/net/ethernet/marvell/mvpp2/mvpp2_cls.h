@@ -32,17 +32,21 @@ enum mvpp2_cls_engine {
 	MVPP22_CLS_ENGINE_C3HB = 7,
 };
 
-#define MVPP22_CLS_HEK_OPT_MAC_DA	BIT(0)
-#define MVPP22_CLS_HEK_OPT_VLAN_PRI	BIT(1)
-#define MVPP22_CLS_HEK_OPT_VLAN		BIT(2)
-#define MVPP22_CLS_HEK_OPT_L3_PROTO	BIT(3)
-#define MVPP22_CLS_HEK_OPT_IP4SA	BIT(4)
-#define MVPP22_CLS_HEK_OPT_IP4DA	BIT(5)
-#define MVPP22_CLS_HEK_OPT_IP6SA	BIT(6)
-#define MVPP22_CLS_HEK_OPT_IP6DA	BIT(7)
-#define MVPP22_CLS_HEK_OPT_L4SIP	BIT(8)
-#define MVPP22_CLS_HEK_OPT_L4DIP	BIT(9)
-#define MVPP22_CLS_HEK_N_FIELDS		10
+/* The VLAN_PRI_QOS field must be first, because it's only valid for
+ * field ID 1.
+ */
+#define MVPP22_CLS_HEK_OPT_VLAN_PRI_QOS	BIT(0)
+#define MVPP22_CLS_HEK_OPT_MAC_DA	BIT(1)
+#define MVPP22_CLS_HEK_OPT_VLAN_PRI	BIT(2)
+#define MVPP22_CLS_HEK_OPT_VLAN		BIT(3)
+#define MVPP22_CLS_HEK_OPT_L3_PROTO	BIT(4)
+#define MVPP22_CLS_HEK_OPT_IP4SA	BIT(5)
+#define MVPP22_CLS_HEK_OPT_IP4DA	BIT(6)
+#define MVPP22_CLS_HEK_OPT_IP6SA	BIT(7)
+#define MVPP22_CLS_HEK_OPT_IP6DA	BIT(8)
+#define MVPP22_CLS_HEK_OPT_L4SIP	BIT(9)
+#define MVPP22_CLS_HEK_OPT_L4DIP	BIT(10)
+#define MVPP22_CLS_HEK_N_FIELDS		11
 
 #define MVPP22_CLS_HEK_L4_OPTS	(MVPP22_CLS_HEK_OPT_L4SIP | \
 				 MVPP22_CLS_HEK_OPT_L4DIP)
@@ -74,6 +78,7 @@ enum mvpp2_cls_field_id {
 	MVPP22_CLS_FIELD_IP6DA = 0x1a,
 	MVPP22_CLS_FIELD_L4SIP = 0x1d,
 	MVPP22_CLS_FIELD_L4DIP = 0x1e,
+	MVPP22_CLS_FIELD_VLAN_PRI_QOS = 0x3f,
 };
 
 /* Classifier C2 engine constants */
@@ -104,6 +109,8 @@ struct mvpp2_cls_c2_entry {
 	u32 index;
 	/* TCAM lookup key */
 	u32 tcam[MVPP2_CLS_C2_TCAM_WORDS];
+	/* QoS table lookup configuration */
+	u32 act_table;
 	/* Actions to perform upon TCAM match */
 	u32 act;
 	/* Attributes relative to the actions to perform */
@@ -121,6 +128,7 @@ struct mvpp2_cls_c2_entry {
 #define MVPP22_CLS_C2_PORT_FIRST(p)	(MVPP22_CLS_C2_N_ENTRIES - \
 					((p) * MVPP22_CLS_C2_PORT_RANGE))
 #define MVPP22_CLS_C2_RSS_ENTRY(p)	(MVPP22_CLS_C2_PORT_FIRST(p) - 1)
+#define MVPP22_CLS_C2_QOS_ENTRY(p)	(MVPP22_CLS_C2_RSS_ENTRY(p) - 1)
 
 /* Packet flow ID */
 enum mvpp2_prs_flow {
@@ -174,10 +182,12 @@ struct mvpp2_cls_flow {
 	struct mvpp2_prs_result_info prs_ri;
 };
 
-#define MVPP2_CLS_FLT_ENTRIES_PER_FLOW		(MVPP2_MAX_PORTS + 1)
+#define MVPP2_N_RFS_ENTRIES			7
+#define MVPP2_CLS_FLT_ENTRIES_PER_FLOW		(MVPP2_MAX_PORTS + 1 + MVPP2_N_RFS_ENTRIES)
 #define MVPP2_CLS_FLT_FIRST(id)			(((id) - MVPP2_FL_START) * MVPP2_CLS_FLT_ENTRIES_PER_FLOW)
 #define MVPP2_CLS_FLT_C2_RSS_ENTRY(id)		(MVPP2_CLS_FLT_FIRST(id))
 #define MVPP2_CLS_FLT_HASH_ENTRY(port, id)	(MVPP2_CLS_FLT_C2_RSS_ENTRY(id) + (port) + 1)
+#define MVPP2_CLS_FLT_C2_RFS(id, rfs_n)		(MVPP2_CLS_FLT_HASH_ENTRY((MVPP2_MAX_PORTS - 1), (id)) + (rfs_n) + 1)
 #define MVPP2_CLS_FLT_LAST(id)			(MVPP2_CLS_FLT_FIRST(id) + MVPP2_CLS_FLT_ENTRIES_PER_FLOW - 1)
 
 /* Iterate on each classifier flow id. sets 'i' to be the  index of the first
@@ -253,5 +263,11 @@ u32 mvpp2_cls_c2_hit_count(struct mvpp2 *priv, int c2_index);
 
 void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 		       struct mvpp2_cls_c2_entry *c2);
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
+
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info);
 
 #endif

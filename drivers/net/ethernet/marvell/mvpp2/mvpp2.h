@@ -126,8 +126,22 @@
 #define MVPP22_CLS_C2_TCAM_DATA4		0x1b20
 #define     MVPP22_CLS_C2_LU_TYPE(lu)		((lu) & 0x3f)
 #define     MVPP22_CLS_C2_PORT_ID(port)		((port) << 8)
+#define     MVPP22_CLS_C2_PORT_MASK		(0xff << 8)
 #define MVPP22_CLS_C2_TCAM_INV			0x1b24
 #define     MVPP22_CLS_C2_TCAM_INV_BIT		BIT(31)
+#define MVPP22_CLS_C2_ACT_TABLE			0x1b30
+#define MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL	BIT(10)
+#define MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL	BIT(9)
+#define MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL	BIT(7)
+#define MVPP22_CLS_C2_ACT_TABLE_DSCP_SEL	BIT(6)
+#define MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(tbl)	((tbl) & 0x3f)
+#define MVPP22_CLS_QOS_IDX			0x1b40
+#define	    MVPP22_CLS_QOS_TBL_NO(no)		(((no) & 0x3f) << 8)
+#define     MVPP22_CLS_QOS_DSCP_SEL		BIT(6)
+#define     MVPP22_CLS_QOS_PRI_IDX(idx)		((idx) & 0x7)
+#define MVPP22_CLS_QOS				0x1b44
+#define     MVPP22_CLS_QOS_RXQ(rxq)		(((rxq) & 0xff) << 24)
+#define     MVPP22_CLS_QOS_PRI(pri)		((pri) & 0x7)
 #define MVPP22_CLS_C2_HIT_CTR			0x1b50
 #define MVPP22_CLS_C2_ACT			0x1b60
 #define     MVPP22_CLS_C2_ACT_RSS_EN(act)	(((act) & 0x3) << 19)
@@ -615,6 +629,7 @@
 #define MVPP2_BIT_IN_WORD(bit)		((bit) % 32)
 
 #define MVPP2_N_PRS_FLOWS		52
+#define MVPP2_N_RFS_RULES		14
 
 /* RSS constants */
 #define MVPP22_RSS_TABLE_ENTRIES	32
@@ -808,6 +823,65 @@ struct mvpp2_queue_vector {
 	struct cpumask *mask;
 };
 
+#define MVPP2_RFS_ACT_TO_RXQ	0
+#define MVPP2_RFS_ACT_TO_RSS	1
+#define MVPP2_RFS_ACT_DROP	2
+
+#define MVPP2_RFS_F_VLAN_QOS	BIT(0)
+#define MVPP2_RFS_F_DSCP_QOS	BIT(1)
+
+#define MVPP2_CLS_ALL_FLOWS	(-1)
+#define MVPP2_CLS_TAGGED_ONLY	(-2)
+
+/* Internal represention of an Accelerated Resource Flow Steering flow.
+ *
+ * This struct is expected to grow as we add more RFS features.
+ */
+struct mvpp2_rfs_rule {
+
+	/* Rule location reported to ethtool */
+	int loc;
+
+	/* Flow type, from ethtool. Can also take special values, such as
+	 * MVPP2_CLS_ALL_FLOWS and MVPP2_CLS_TAGGED_ONLY.*/
+	int flow_type;
+
+	/* Index of the entry handling this rule in the flow table */
+	int flt_index;
+
+	/* Index of the C2 TCAM entry handling this rule */
+	int c2_index;
+
+	/* TCAM key and mask for C2-based steering. These fields should be
+	 * encapsulated in a union should we add more engines.
+	 */
+	u64 c2_tcam;
+	u64 c2_tcam_mask;
+
+	/* Header fields that needs to be extracted to match this flow */
+	u16 hek_fields;
+
+	/* Flags for non-TCAM matches, such as priority-based steering. */
+	u16 flags;
+
+	/* VLAN or DSCP prio */
+	u8 pri;
+
+	/* CLS engine : only c2 is supported for now. */
+	u8 engine;
+
+	/* Destination for the flow. Can be an RxQ or an RSS table */
+	u8 dst;
+
+	/* Action type : Drop the frame, or steer it to the RxQ/RSS table. */
+	u8 action;
+};
+
+struct mvpp2_ethtool_fs {
+	struct mvpp2_rfs_rule rule;
+	struct ethtool_rx_flow_spec spec;
+};
+
 struct mvpp2_port {
 	u8 id;
 
@@ -879,6 +953,10 @@ struct mvpp2_port {
 
 	/* RSS indirection table */
 	u32 indir[MVPP22_RSS_TABLE_ENTRIES];
+
+	/* List of steering rules active on that port */
+	struct mvpp2_ethtool_fs *rfs_rules[MVPP2_N_RFS_RULES];
+	int n_rfs_rules;
 };
 
 /* The mvpp2_tx_desc and mvpp2_rx_desc structures describe the

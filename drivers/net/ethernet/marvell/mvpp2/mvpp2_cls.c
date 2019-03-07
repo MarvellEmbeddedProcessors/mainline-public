@@ -10,6 +10,7 @@
 #include "mvpp2.h"
 #include "mvpp2_cls.h"
 #include "mvpp2_prs.h"
+#include <linux/if_vlan.h>
 
 #define MVPP2_DEF_FLOW(_type, _id, _opts, _ri, _ri_mask)	\
 {								\
@@ -448,11 +449,28 @@ static void mvpp2_cls_flow_port_add(struct mvpp2_cls_flow_entry *fe,
 	fe->data[0] |= MVPP2_CLS_FLOW_TBL0_PORT_ID(port);
 }
 
+static void mvpp2_cls_flow_port_remove(struct mvpp2_cls_flow_entry *fe,
+				       u32 port)
+{
+	fe->data[0] &= ~MVPP2_CLS_FLOW_TBL0_PORT_ID(port);
+}
+
+static u8 mvpp2_cls_flow_pmap_get(struct mvpp2_cls_flow_entry *fe)
+{
+	return (fe->data[0] >> 4) & MVPP2_CLS_FLOW_TBL0_PORT_ID_MASK;
+}
+
 static void mvpp2_cls_flow_lu_type_set(struct mvpp2_cls_flow_entry *fe,
 				       u8 lu_type)
 {
 	fe->data[1] &= ~MVPP2_CLS_FLOW_TBL1_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK);
 	fe->data[1] |= MVPP2_CLS_FLOW_TBL1_LU_TYPE(lu_type);
+}
+
+static u8 mvpp2_cls_flow_lu_type_get(struct mvpp2_cls_flow_entry *fe)
+{
+	return (fe->data[1] &
+		MVPP2_CLS_FLOW_TBL1_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK)) >> 3;
 }
 
 /* Initialize the parser entry for the given flow */
@@ -515,6 +533,7 @@ static void mvpp2_cls_c2_write(struct mvpp2 *priv,
 		val |= MVPP22_CLS_C2_TCAM_INV_BIT;
 	mvpp2_write(priv, MVPP22_CLS_C2_TCAM_INV, val);
 
+	mvpp2_write(priv, MVPP22_CLS_C2_ACT_TABLE, c2->act_table);
 	mvpp2_write(priv, MVPP22_CLS_C2_ACT, c2->act);
 
 	mvpp2_write(priv, MVPP22_CLS_C2_ATTR0, c2->attr[0]);
@@ -543,6 +562,7 @@ void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 	c2->tcam[3] = mvpp2_read(priv, MVPP22_CLS_C2_TCAM_DATA3);
 	c2->tcam[4] = mvpp2_read(priv, MVPP22_CLS_C2_TCAM_DATA4);
 
+	c2->act_table = mvpp2_read(priv, MVPP22_CLS_C2_ACT_TABLE);
 	c2->act = mvpp2_read(priv, MVPP22_CLS_C2_ACT);
 
 	c2->attr[0] = mvpp2_read(priv, MVPP22_CLS_C2_ATTR0);
@@ -601,7 +621,19 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 
 		mvpp2_cls_flow_write(priv, &fe);
 	}
+}
 
+/* Map the 802.3Q priority to the given rxq id for that port in the QoS table */
+static void mvpp22_qos_set_8023q_to_rxq(struct mvpp2_port *port, u8 vlan_pri, u8 rxq)
+{
+	/* Select the QoS table and the row we write to */
+	mvpp2_write(port->priv, MVPP22_CLS_QOS_IDX,
+		    MVPP22_CLS_QOS_TBL_NO(port->id) |
+		    MVPP22_CLS_QOS_PRI_IDX(vlan_pri));
+	/* Map rxq to 802.3Q priority */
+	mvpp2_write(port->priv, MVPP22_CLS_QOS,
+		    MVPP22_CLS_QOS_RXQ(port->first_rxq + rxq) |
+		    MVPP22_CLS_QOS_PRI(vlan_pri));
 }
 
 static int mvpp2_flow_set_hek_fields(struct mvpp2_cls_flow_entry *fe,
@@ -616,6 +648,10 @@ static int mvpp2_flow_set_hek_fields(struct mvpp2_cls_flow_entry *fe,
 
 	for_each_set_bit(i, &hash_opts, MVPP22_CLS_HEK_N_FIELDS) {
 		switch (BIT(i)) {
+		case MVPP22_CLS_HEK_OPT_VLAN_PRI_QOS:
+			/* This entry has to be added to field 1 */
+			field_id = MVPP22_CLS_FIELD_VLAN_PRI_QOS;
+			break;
 		case MVPP22_CLS_HEK_OPT_MAC_DA:
 			field_id = MVPP22_CLS_FIELD_MAC_DA;
 			break;
@@ -721,6 +757,9 @@ u16 mvpp2_flow_get_hek_fields(struct mvpp2_cls_flow_entry *fe)
 		field = mvpp2_cls_flow_hek_get(fe, i);
 
 		switch (field) {
+		case MVPP22_CLS_FIELD_VLAN_PRI_QOS:
+			hash_opts |= MVPP22_CLS_HEK_OPT_VLAN_PRI_QOS;
+			break;
 		case MVPP22_CLS_FIELD_MAC_DA:
 			hash_opts |= MVPP22_CLS_HEK_OPT_MAC_DA;
 			break;
@@ -803,6 +842,34 @@ static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 {
 	struct mvpp2_cls_c2_entry c2;
 	u8 qh, ql, pmap;
+
+	memset(&c2, 0, sizeof(c2));
+
+	c2.index = MVPP22_CLS_C2_QOS_ENTRY(port->id);
+
+	/* Leave the port map empty at init so that this entry doesn't match
+	 * by default
+	 */
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TAGGED_ONLY);
+
+	/* Mark packet as "forwarded to software". If match, update and lock
+	 * the dest rxq that we recovered from the QoS table so that the RSS
+	 * lookup doesn't override it.
+	 */
+	c2.act = MVPP22_CLS_C2_ACT_FWD(MVPP22_C2_FWD_SW_LOCK) |
+		 MVPP22_CLS_C2_ACT_QHIGH(MVPP22_C2_UPD_LOCK) |
+		 MVPP22_CLS_C2_ACT_QLOW(MVPP22_C2_UPD_LOCK);
+
+	/* Extract rxq from the QoS table lookup */
+	c2.act_table = MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(port->id) |
+		       MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL |
+		       MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL |
+		       MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL;
+
+	c2.valid = true;
+
+	mvpp2_cls_c2_write(port->priv, &c2);
 
 	memset(&c2, 0, sizeof(c2));
 
@@ -948,6 +1015,37 @@ void mvpp22_port_rss_disable(struct mvpp2_port *port)
 	mvpp2_rss_port_c2_disable(port);
 }
 
+/* We use a scheme where only one port can use a given C2 entry, so no need to
+ * use the matching pattern allowing to match multiple ports with one entry.
+ */
+static void mvpp22_port_c2_lookup_enable(struct mvpp2_port *port, int entry)
+{
+	struct mvpp2_cls_c2_entry c2;
+	u8 pmap;
+
+	mvpp2_cls_c2_read(port->priv, entry, &c2);
+
+	/* Simply add the port to the pmap of this entry, to enable it */
+	pmap = BIT(port->id);
+	c2.tcam[4] = MVPP22_CLS_C2_PORT_ID(pmap);
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(pmap));
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+}
+
+static void mvpp22_port_c2_lookup_disable(struct mvpp2_port *port, int entry)
+{
+	struct mvpp2_cls_c2_entry c2;
+
+	mvpp2_cls_c2_read(port->priv, entry, &c2);
+
+	/* Clear the port map so that the entry doesn't match anymore */
+	c2.tcam[4] &= ~(MVPP22_CLS_C2_PORT_ID(0) |
+			MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(0)));
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+}
+
 /* Set CPU queue number for oversize packets */
 void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 {
@@ -962,6 +1060,407 @@ void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 	val = mvpp2_read(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG);
 	val |= MVPP2_CLS_SWFWD_PCTRL_MASK(port->id);
 	mvpp2_write(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG, val);
+}
+
+static int mvpp2_cls_flow_spec_get_8023q_pri(struct ethtool_rx_flow_spec *spec)
+{
+	if (!(spec->flow_type & (FLOW_EXT | FLOW_MAC_EXT)))
+		return -EINVAL;
+
+	/* We only support matching the full vlan prio, and nothing else.*/
+	if (spec->m_ext.vlan_tci != htons(VLAN_PRIO_MASK))
+		return -EINVAL;
+
+	return ntohs(spec->m_ext.vlan_tci &
+		     spec->h_ext.vlan_tci) >> VLAN_PRIO_SHIFT;
+}
+
+static int mvpp2_port_c2_qos_rule_add(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	/* The special case "QoS lookup" has a pre-defined index */
+	rule->c2_index = MVPP22_CLS_C2_QOS_ENTRY(port->id);
+	mvpp22_port_c2_lookup_enable(port, rule->c2_index);
+	mvpp22_qos_set_8023q_to_rxq(port, rule->pri, rule->dst);
+
+	return 0;
+}
+
+static int mvpp2_port_c2_qos_rule_del(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	bool last = true;
+	int i;
+	for (i = 0; i <= 7; i++) {
+		if (i == rule->loc)
+			continue;
+
+		if (port->rfs_rules[i]) {
+			last = false;
+			break;
+		}
+	}
+	/* The special case "QoS lookup" has a pre-defined index */
+	rule->c2_index = MVPP22_CLS_C2_QOS_ENTRY(port->id);
+	if (last)
+		mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+	else
+		mvpp22_qos_set_8023q_to_rxq(port, rule->pri, port->first_rxq);
+
+	return 0;
+}
+
+static int mvpp2_port_c2_rfs_rule_insert(struct mvpp2_port *port,
+					 struct mvpp2_rfs_rule *rule)
+{
+	int ret = -EOPNOTSUPP;
+
+	if (rule->flags & MVPP2_RFS_F_VLAN_QOS &&
+	    rule->action == MVPP2_RFS_ACT_TO_RXQ)
+		ret = mvpp2_port_c2_qos_rule_add(port, rule);
+
+	return ret;
+
+}
+
+static int mvpp2_port_flow_table_find(struct mvpp2 *priv, int flow_id, u8 engine,
+				      u8 lu_type, u16 hek_fields)
+{
+	struct mvpp2_cls_flow_entry fe;
+	u16 flow_hek_fields;
+	int i, flow_engine;
+	u8 flow_lu_type;
+
+	/* Iterate on all flow table entries for this ID */
+	for (i = MVPP2_CLS_FLT_FIRST(flow_id);
+	     i < MVPP2_CLS_FLT_LAST(flow_id); i++) {
+
+		mvpp2_cls_flow_read(priv, i, &fe);
+
+		flow_hek_fields = mvpp2_flow_get_hek_fields(&fe);
+		if (flow_hek_fields != hek_fields)
+			continue;
+
+		flow_engine = mvpp2_cls_flow_eng_get(&fe);
+		if (flow_engine != engine)
+			continue;
+
+		flow_lu_type = mvpp2_cls_flow_lu_type_get(&fe);
+		if (flow_lu_type != lu_type)
+			continue;
+
+		return i;
+	}
+
+	return -1;
+}
+
+static int mvpp2_port_flow_table_find_free(struct mvpp2 *priv, int flow_id)
+{
+	struct mvpp2_cls_flow_entry fe;
+	int i;
+	u8 pmap;
+
+	memset(&fe, 0, sizeof(fe));
+	for (i = 0; i < MVPP2_N_RFS_ENTRIES; i++) {
+		mvpp2_cls_flow_read(priv, MVPP2_CLS_FLT_C2_RFS(flow_id, i), &fe);
+
+		/* get pmap */
+		pmap = mvpp2_cls_flow_pmap_get(&fe);
+		if (!pmap)
+			return i;
+	}
+
+	return -1;
+}
+
+static bool mvpp2_port_flt_has_siblings(struct mvpp2_port *port,
+					struct mvpp2_rfs_rule *rule)
+{
+	struct mvpp2_ethtool_fs *efs;
+	int i;
+
+	for (i = 0; i <= MVPP2_N_RFS_RULES; i++) {
+		efs = port->rfs_rules[i];
+		if (!efs)
+			continue;
+		/* Skip the entry we are trying to find the sibling of */
+		if (efs->rule.loc == rule->loc)
+			continue;
+		if (efs->rule.flt_index == rule->flt_index)
+			return true;
+	}
+
+	return false;
+}
+
+/* Finish */
+static int mvpp2_port_cls_rfs_rule_remove(struct mvpp2_port *port,
+					  struct mvpp2_rfs_rule *rule)
+{
+	struct mvpp2_cls_flow_entry fe;
+
+	if (rule->flt_index >= 0 &&
+	    !mvpp2_port_flt_has_siblings(port, rule)) {
+		mvpp2_cls_flow_read(port->priv, rule->flt_index, &fe);
+		mvpp2_cls_flow_port_remove(&fe, BIT(port->id));
+		mvpp2_cls_flow_write(port->priv, &fe);
+	}
+
+	if (rule->c2_index >= 0) {
+
+		if (rule->c2_index == MVPP22_CLS_C2_QOS_ENTRY(port->id)) {
+			mvpp2_port_c2_qos_rule_del(port, rule);
+		} else {
+			mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+		}
+	}
+
+	return 0;
+}
+
+static int mvpp2_port_flt_rfs_rule_insert(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	const struct mvpp2_cls_flow *flow;
+	struct mvpp2_cls_flow_entry fe;
+	struct mvpp2 *priv = port->priv;
+	int index, ret, i;
+	u8 lu_type;
+
+	if (rule->engine != MVPP22_CLS_ENGINE_C2)
+		return -EOPNOTSUPP;
+
+	ret = mvpp2_port_c2_rfs_rule_insert(port, rule);
+	if (ret)
+		return ret;
+
+	// Iterate on each flow and determine if we should apply the rule
+	for_each_cls_flow_id(i) {
+		flow = mvpp2_cls_flow_get(i);
+		if (!flow)
+			return 0;
+
+		/* Skip untagged flows if we want tagged-only traffic */
+		if (rule->flow_type == MVPP2_CLS_TAGGED_ONLY &&
+		    !(flow->supported_hash_opts & (MVPP22_CLS_HEK_TAGGED)))
+			continue;
+		else if (rule->flow_type != MVPP2_CLS_ALL_FLOWS &&
+			 flow->flow_type == rule->flow_type)
+			continue;
+
+		lu_type = rule->flow_type;
+		if (rule->flow_type == MVPP2_CLS_TAGGED_ONLY)
+			lu_type = MVPP2_CLS_LU_TAGGED_ONLY;
+		else if (rule->flow_type == MVPP2_CLS_ALL_FLOWS)
+			lu_type = MVPP2_CLS_LU_ALL;
+		else
+			return -EOPNOTSUPP;
+
+		index = mvpp2_port_flow_table_find(priv, flow->flow_id,
+						   rule->engine, lu_type,
+						   rule->hek_fields);
+
+		/* If there already is a flow entry that matches our parameters */
+		if (index >= 0) {
+			rule->flt_index = index;
+			mvpp2_cls_flow_read(priv, index, &fe);
+			mvpp2_cls_flow_port_add(&fe, BIT(port->id));
+			mvpp2_cls_flow_write(priv, &fe);
+			continue;
+		} else {
+			index = mvpp2_port_flow_table_find_free(priv,
+								flow->flow_id);
+			if (index < 0)
+				return -EOPNOTSUPP;
+		}
+
+		/* Create entry */
+		memset(&fe, 0, sizeof(fe));
+		fe.index = index;
+		rule->flt_index = index;
+
+		mvpp2_cls_flow_eng_set(&fe, rule->engine);
+		mvpp2_cls_flow_port_id_sel(&fe, true);
+		mvpp2_flow_set_hek_fields(&fe, rule->hek_fields);
+		mvpp2_cls_flow_lu_type_set(&fe, lu_type);
+		mvpp2_cls_flow_port_add(&fe, BIT(port->id));
+
+		mvpp2_cls_flow_write(priv, &fe);
+	}
+
+	return 0;
+}
+
+static u16 mvpp2_cls_flow_spec_get_hek(struct ethtool_rxnfc *info)
+{
+	u16 hek = 0;
+	int pri;
+
+	pri = mvpp2_cls_flow_spec_get_8023q_pri(&info->fs);
+	if (pri >= 0)
+		hek |= MVPP22_CLS_HEK_OPT_VLAN_PRI;
+
+	return hek;
+}
+
+static int mvpp2_cls_c2_build_tcam_match(struct mvpp2_rfs_rule *rule,
+					  struct ethtool_rx_flow_spec *spec)
+{
+	if (!(spec->flow_type & (FLOW_EXT | FLOW_MAC_EXT)))
+		return -EINVAL;
+
+	/* We only support matching the full vlan prio, and nothing else.*/
+	if (spec->m_ext.vlan_tci != htons(VLAN_PRIO_MASK))
+		return -EINVAL;
+
+	rule->c2_tcam = ((u64)mvpp2_cls_flow_spec_get_8023q_pri(spec)) << 61;
+	rule->c2_tcam_mask = ((u64)(VLAN_PRIO_MASK >> VLAN_PRIO_SHIFT)) << 61;
+
+	return 0;
+}
+
+/* Convert an ethtool rxnfc rule into a mvpp2-specific rfs flow rule.
+ * It is responsible for detecting that a rule is correct.
+ */
+static int mvpp2_cls_rfs_parse_rule(struct ethtool_rxnfc *info,
+				    struct mvpp2_rfs_rule *rule)
+{
+	int pri;
+
+	memset(rule, 0, sizeof(*rule));
+
+	if (info->fs.ring_cookie == RX_CLS_FLOW_WAKE)
+		return -EOPNOTSUPP;
+
+	if (info->fs.flow_type & FLOW_RSS) {
+		rule->action = MVPP2_RFS_ACT_TO_RSS;
+		if (info->rss_context > 7)
+			return -EOPNOTSUPP;
+		rule->dst = info->rss_context;
+	} else if (info->fs.ring_cookie == RX_CLS_FLOW_DISC) {
+		rule->action = MVPP2_RFS_ACT_DROP;
+	} else {
+		rule->action = MVPP2_RFS_ACT_TO_RXQ;
+		rule->dst = info->fs.ring_cookie;
+	}
+
+	rule->loc = info->fs.location;
+
+	/* Priority based steering isn't necessarly handled by a match engine,
+	 * we can use the dedicated C2 QoS tables.
+	 */
+	pri = mvpp2_cls_flow_spec_get_8023q_pri(&info->fs);
+	if (pri >= 0) {
+		rule->pri = pri;
+		rule->flags |= MVPP2_RFS_F_VLAN_QOS;
+		rule->flow_type = MVPP2_CLS_TAGGED_ONLY;
+	} else {
+		rule->flow_type = info->flow_type & !(FLOW_EXT | FLOW_MAC_EXT |
+						      FLOW_RSS);
+	}
+
+	/* Get the HEK parameters and the engine needed to perform the flow
+	 * steering */
+	rule->hek_fields = mvpp2_cls_flow_spec_get_hek(info);
+
+	/* Special case : We use QoS tables when steering to a queue based on
+	 * VLAN PRI. This requires setting a special field in the HEK.
+	 */
+	if ((rule->hek_fields == MVPP22_CLS_HEK_OPT_VLAN_PRI) &&
+	    (rule->action == MVPP2_RFS_ACT_TO_RXQ)) {
+		/* The first 8 locations are dedicated to VLAN PRI QoS. There
+		 * are 8 possible priorities, but we only use 1 physical entry
+		 * for this by using the QoS tables.
+		 */
+		if (rule->loc >= 8)
+			return -EINVAL;
+
+		rule->hek_fields = MVPP22_CLS_HEK_OPT_VLAN_PRI_QOS;
+	} else {
+		if (rule->loc < 8)
+			return -EINVAL;
+	}
+
+	/* Classifier can only extract 5 fields from the header */
+	if (hweight16(rule->hek_fields) > MVPP2_FLOW_N_FIELDS)
+		return -EOPNOTSUPP;
+
+	/* For now, only use the C2 engine which has a HEK size limited to 64
+	 * bits for TCAM matching.*/
+	rule->engine = MVPP22_CLS_ENGINE_C2;
+
+	if (mvpp2_cls_c2_build_tcam_match(rule, &info->fs))
+		return -EINVAL;
+
+	return 0;
+}
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info)
+{
+	struct mvpp2_ethtool_fs *efs, *old_efs;
+	int ret;
+
+	if (info->fs.location >= 14 || info->fs.location < 0)
+		return -EINVAL;
+
+	efs = kzalloc(sizeof(*efs), GFP_KERNEL);
+		if (!efs)
+			return -ENOMEM;
+
+	ret = mvpp2_cls_rfs_parse_rule(info, &efs->rule);
+	if (ret)
+		goto clean_rule;
+
+	ret = mvpp2_port_flt_rfs_rule_insert(port, &efs->rule);
+	if (ret)
+		goto clean_rule;
+
+	/* Replace an already existing rule */
+	if (port->rfs_rules[info->fs.location]) {
+		old_efs = port->rfs_rules[info->fs.location];
+		ret = mvpp2_port_cls_rfs_rule_remove(port, &old_efs->rule);
+		if (ret)
+			return ret;
+		kfree(old_efs);
+	}
+
+	memcpy(&efs->spec, &info->fs, sizeof(struct ethtool_rx_flow_spec));
+	port->rfs_rules[info->fs.location] = efs;
+	port->n_rfs_rules++;
+
+	return 0;
+
+clean_rule:
+	kfree(efs);
+	return ret;
+}
+
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info)
+{
+	struct mvpp2_ethtool_fs *efs;
+	int ret;
+
+	/* TODO location */
+	if (info->fs.location >= 14 || info->fs.location < 0)
+		return -EINVAL;
+
+	efs = port->rfs_rules[info->fs.location];
+	if (!efs)
+		return -EINVAL;
+
+	/* Remove the rule from the engines. */
+	ret =  mvpp2_port_cls_rfs_rule_remove(port, &efs->rule);
+	if (ret)
+		return ret;
+
+	port->n_rfs_rules--;
+	port->rfs_rules[info->fs.location] = NULL;
+	kfree(efs);
+
+	return 0;
 }
 
 static inline u32 mvpp22_rxfh_indir(struct mvpp2_port *port, u32 rxq)
