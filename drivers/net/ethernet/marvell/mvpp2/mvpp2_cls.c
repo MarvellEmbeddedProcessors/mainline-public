@@ -1144,14 +1144,87 @@ static int mvpp2_port_c2_qos_rule_del(struct mvpp2_port *port,
 	return 0;
 }
 
+static int mvpp2_port_c2_tcam_rule_add(struct mvpp2_port *port,
+				       struct mvpp2_rfs_rule *rule)
+{
+	struct mvpp2_cls_c2_entry c2;
+	u8 qh, ql, pmap, lu_type;
+	int ctx;
+
+	memset(&c2, 0, sizeof(c2));
+	c2.index = MVPP22_CLS_C2_RFS_LOC(port->id, rule->loc - 7);
+	rule->c2_index = c2.index;
+
+	c2.tcam[0] = (rule->c2_tcam & 0xffff) |
+		     ((rule->c2_tcam_mask & 0xffff) << 16);
+	c2.tcam[1] = ((rule->c2_tcam >> 16) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 16) & 0xffff) << 16);
+	c2.tcam[2] = ((rule->c2_tcam >> 32) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 32) & 0xffff) << 16);
+	c2.tcam[3] = ((rule->c2_tcam >> 48) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 48) & 0xffff) << 16);
+
+	pmap = BIT(port->id);
+	c2.tcam[4] = MVPP22_CLS_C2_PORT_ID(pmap);
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(pmap));
+
+	lu_type = rule->flow_type;
+	if (rule->flow_type == MVPP2_CLS_TAGGED_ONLY)
+		lu_type = MVPP2_CLS_LU_TAGGED_ONLY;
+	else if (rule->flow_type == MVPP2_CLS_ALL_FLOWS)
+		lu_type = MVPP2_CLS_LU_ALL;
+	else
+		return -EOPNOTSUPP;
+
+	/* Match on Lookup Type */
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(lu_type);
+
+	/* Update RSS status after matching this entry */
+	if (rule->action == MVPP2_RFS_ACT_TO_RSS) {
+		c2.act = MVPP22_CLS_C2_ACT_RSS_EN(MVPP22_C2_UPD_LOCK);
+		c2.attr[2] |= MVPP22_CLS_C2_ATTR2_RSS_EN;
+	}
+
+	/* Mark packet as "forwarded to software", needed for RSS */
+	c2.act |= MVPP22_CLS_C2_ACT_FWD(MVPP22_C2_FWD_SW_LOCK);
+
+	c2.act |= MVPP22_CLS_C2_ACT_QHIGH(MVPP22_C2_UPD_LOCK) |
+		   MVPP22_CLS_C2_ACT_QLOW(MVPP22_C2_UPD_LOCK);
+
+	if (rule->action == MVPP2_RFS_ACT_TO_RSS) {
+		ctx = mvpp22_rss_ctx(port, rule->dst);
+		if (ctx < 0)
+			return -EINVAL;
+
+		qh = (ctx >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+		ql = ctx & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+	} else {
+		qh = ((rule->dst + port->first_rxq) >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+		ql = (rule->dst + port->first_rxq) & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+	}
+
+	c2.attr[0] = MVPP22_CLS_C2_ATTR0_QHIGH(qh) |
+		      MVPP22_CLS_C2_ATTR0_QLOW(ql);
+
+	c2.valid = true;
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+
+	return 0;
+}
+
 static int mvpp2_port_c2_rfs_rule_insert(struct mvpp2_port *port,
 					 struct mvpp2_rfs_rule *rule)
 {
-	int ret = -EOPNOTSUPP;
+	int ret = 0;
 
 	if (rule->flags & MVPP2_RFS_F_VLAN_QOS &&
-	    rule->action == MVPP2_RFS_ACT_TO_RXQ)
+	    rule->action == MVPP2_RFS_ACT_TO_RXQ) {
 		ret = mvpp2_port_c2_qos_rule_add(port, rule);
+	} else {
+		ret = mvpp2_port_c2_tcam_rule_add(port, rule);
+	}
 
 	return ret;
 

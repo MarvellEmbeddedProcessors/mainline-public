@@ -124,11 +124,13 @@ struct mvpp2_cls_c2_entry {
 
 /* Number of per-port dedicated entries in the C2 TCAM */
 #define MVPP22_CLS_C2_PORT_RANGE	8
+#define MVPP22_CLS_C2_PORT_N_RFS	6
 
 #define MVPP22_CLS_C2_PORT_FIRST(p)	(MVPP22_CLS_C2_N_ENTRIES - \
 					((p) * MVPP22_CLS_C2_PORT_RANGE))
 #define MVPP22_CLS_C2_RSS_ENTRY(p)	(MVPP22_CLS_C2_PORT_FIRST(p) - 1)
 #define MVPP22_CLS_C2_QOS_ENTRY(p)	(MVPP22_CLS_C2_RSS_ENTRY(p) - 1)
+#define MVPP22_CLS_C2_RFS_LOC(p, loc)	(MVPP22_CLS_C2_QOS_ENTRY(p) - (loc) - 1)
 
 /* Packet flow ID */
 enum mvpp2_prs_flow {
