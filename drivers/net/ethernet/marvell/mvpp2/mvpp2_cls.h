@@ -264,6 +264,9 @@ u32 mvpp2_cls_c2_hit_count(struct mvpp2 *priv, int c2_index);
 void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 		       struct mvpp2_cls_c2_entry *c2);
 
+int mvpp2_ethtool_cls_rule_get(struct mvpp2_port *port,
+			       struct ethtool_rx_flow_spec *spec, int loc);
+
 int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
 			       struct ethtool_rxnfc *info);
 

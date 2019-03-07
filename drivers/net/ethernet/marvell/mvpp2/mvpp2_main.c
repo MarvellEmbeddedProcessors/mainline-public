@@ -3952,6 +3952,9 @@ static int mvpp2_ethtool_get_rxnfc(struct net_device *dev,
 	case ETHTOOL_GRXCLSRLCNT:
 		info->rule_cnt = port->n_rfs_rules;
 		break;
+	case ETHTOOL_GRXCLSRULE:
+		ret = mvpp2_ethtool_cls_rule_get(port, &info->fs, info->fs.location);
+		break;
 	default:
 		return -ENOTSUPP;
 	}

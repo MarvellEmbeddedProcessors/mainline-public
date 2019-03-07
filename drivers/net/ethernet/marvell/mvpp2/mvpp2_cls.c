@@ -1396,6 +1396,22 @@ static int mvpp2_cls_rfs_parse_rule(struct ethtool_rxnfc *info,
 	return 0;
 }
 
+int mvpp2_ethtool_cls_rule_get(struct mvpp2_port *port,
+			       struct ethtool_rx_flow_spec *spec, int loc)
+{
+	struct mvpp2_ethtool_fs *efs;
+	if (loc >= 14 || loc < 0)
+		return -EINVAL;
+
+	efs = port->rfs_rules[loc];
+	if (!efs)
+		return -ENOENT;
+
+	memcpy(spec, &efs->spec, sizeof(struct ethtool_rx_flow_spec));
+
+	return 0;
+}
+
 int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
 			       struct ethtool_rxnfc *info)
 {
