@@ -559,16 +559,28 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 				const struct mvpp2_cls_flow *flow)
 {
 	struct mvpp2_cls_flow_entry fe;
-	int i;
+	int i, pri = 0;
 
-	/* C2 lookup */
+	/* Assign default values to all entries in the flow */
+	for (i = MVPP2_CLS_FLT_FIRST(flow->flow_id);
+	     i <= MVPP2_CLS_FLT_LAST(flow->flow_id); i++) {
+
+		memset(&fe, 0, sizeof(fe));
+		fe.index = i;
+		mvpp2_cls_flow_pri_set(&fe, pri++);
+
+		if (i == MVPP2_CLS_FLT_LAST(flow->flow_id))
+			mvpp2_cls_flow_last_set(&fe, 1);
+
+		mvpp2_cls_flow_write(priv, &fe);
+	}
+
+	/* RSS config C2 lookup */
 	memset(&fe, 0, sizeof(fe));
 	fe.index = MVPP2_CLS_FLT_C2_RSS_ENTRY(flow->flow_id);
 
 	mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C2);
 	mvpp2_cls_flow_port_id_sel(&fe, true);
-	mvpp2_cls_flow_last_set(&fe, 0);
-	mvpp2_cls_flow_pri_set(&fe, 0);
 	mvpp2_cls_flow_lu_type_set(&fe, MVPP2_CLS_LU_ALL);
 
 	/* Add all ports */
@@ -585,15 +597,11 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 		/* Add a default engine to the entry. */
 		mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C3HA);
 		mvpp2_cls_flow_port_id_sel(&fe, true);
-		mvpp2_cls_flow_pri_set(&fe, i + 1);
 		mvpp2_cls_flow_port_add(&fe, BIT(i));
 
 		mvpp2_cls_flow_write(priv, &fe);
 	}
 
-	/* Update the last entry */
-	mvpp2_cls_flow_last_set(&fe, 1);
-	mvpp2_cls_flow_write(priv, &fe);
 }
 
 static int mvpp2_flow_set_hek_fields(struct mvpp2_cls_flow_entry *fe,
