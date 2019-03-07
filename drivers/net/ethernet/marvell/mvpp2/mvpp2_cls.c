@@ -512,6 +512,8 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv, struct mvpp2_cls_flow *flow)
 		memset(&fe, 0, sizeof(fe));
 		fe.index = MVPP2_PORT_FLOW_HASH_ENTRY(i, flow->flow_id);
 
+		/* Add a default engine to the entry. */
+		mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C3HA);
 		mvpp2_cls_flow_port_id_sel(&fe, true);
 		mvpp2_cls_flow_pri_set(&fe, i + 1);
 		mvpp2_cls_flow_seq_set(&fe, MVPP2_CLS_FLOW_SEQ_MIDDLE);
