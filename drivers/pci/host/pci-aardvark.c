@@ -177,6 +177,9 @@
 
 #define PIO_TIMEOUT_MS			1
 
+/* Endpoint can take up to 100ms to be ready after a reset */
+#define ENDPOINT_RST_MS			100
+
 #define LINK_WAIT_MAX_RETRIES		10
 #define LINK_WAIT_USLEEP_MIN		90000
 #define LINK_WAIT_USLEEP_MAX		100000
@@ -239,8 +242,10 @@ static int advk_pcie_wait_for_link(struct advk_pcie *pcie)
 	return -ETIMEDOUT;
 }
 
-static void advk_pcie_setup_hw(struct advk_pcie *pcie)
+static void
+advk_pcie_setup_hw(struct advk_pcie *pcie, unsigned long ep_rdy_time)
 {
+	unsigned long now;
 	u32 reg;
 
 	/* Set to Direct mode */
@@ -324,9 +329,12 @@ static void advk_pcie_setup_hw(struct advk_pcie *pcie)
 	reg |= PIO_CTRL_ADDR_WIN_DISABLE;
 	advk_writel(pcie, reg, PIO_CTRL);
 
-	/* Start link training */
+	/* Wait for endpoint to exit reset state and start link training */
 	reg = advk_readl(pcie, PCIE_CORE_LINK_CTRL_STAT_REG);
 	reg |= PCIE_CORE_LINK_TRAINING;
+	now = jiffies;
+	if (time_before(now, ep_rdy_time))
+		msleep(jiffies_to_msecs(ep_rdy_time - now));
 	advk_writel(pcie, reg, PCIE_CORE_LINK_CTRL_STAT_REG);
 
 	advk_pcie_wait_for_link(pcie);
@@ -968,7 +976,10 @@ static int advk_pcie_probe(struct platform_device *pdev)
 	struct advk_pcie *pcie;
 	struct resource *res;
 	struct pci_host_bridge *bridge;
+	unsigned long ep_rdy_time;
 	int ret, irq;
+
+	ep_rdy_time = jiffies + msecs_to_jiffies(ENDPOINT_RST_MS);
 
 	bridge = devm_pci_alloc_host_bridge(dev, sizeof(struct advk_pcie));
 	if (!bridge)
@@ -997,7 +1008,7 @@ static int advk_pcie_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	advk_pcie_setup_hw(pcie);
+	advk_pcie_setup_hw(pcie, ep_rdy_time);
 
 	advk_sw_pci_bridge_init(pcie);
 
