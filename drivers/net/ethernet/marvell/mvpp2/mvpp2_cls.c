@@ -515,8 +515,10 @@ static void mvpp2_cls_c2_write(struct mvpp2 *priv,
 		val &= ~MVPP22_CLS_C2_TCAM_INV_BIT;
 	else
 		val |= MVPP22_CLS_C2_TCAM_INV_BIT;
+
 	mvpp2_write(priv, MVPP22_CLS_C2_TCAM_INV, val);
 
+	mvpp2_write(priv, MVPP22_CLS_C2_ACT_TABLE, c2->act_table);
 	mvpp2_write(priv, MVPP22_CLS_C2_ACT, c2->act);
 
 	mvpp2_write(priv, MVPP22_CLS_C2_ATTR0, c2->attr[0]);
@@ -546,6 +548,7 @@ void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 	c2->tcam[3] = mvpp2_read(priv, MVPP22_CLS_C2_TCAM_DATA3);
 	c2->tcam[4] = mvpp2_read(priv, MVPP22_CLS_C2_TCAM_DATA4);
 
+	c2->act_table = mvpp2_read(priv, MVPP22_CLS_C2_ACT_TABLE);
 	c2->act = mvpp2_read(priv, MVPP22_CLS_C2_ACT);
 
 	c2->attr[0] = mvpp2_read(priv, MVPP22_CLS_C2_ATTR0);
@@ -580,8 +583,12 @@ static int mvpp2_cls_c2_port_flow_get_type(int flow_type)
 static int mvpp2_cls_c2_port_flow_index(struct mvpp2_port *port, int lu_type,
 					int loc)
 {
-	if (loc >= MVPP22_CLS_C2_PORT_N_RFS)
+	if (loc >= MVPP22_CLS_C2_PORT_N_RFS + 8)
 		return -EINVAL;
+
+	/* The 8 last locations are dedicated to QoS */
+	if (loc >= MVPP22_CLS_C2_PORT_N_RFS)
+		return MVPP22_CLS_C2_QOS_ENTRY(port->id, lu_type);
 
 	return MVPP22_CLS_C2_RFS_LOC(port->id, lu_type, loc);
 }
@@ -635,6 +642,20 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 
 		mvpp2_cls_flow_write(priv, &fe);
 	}
+}
+
+/* Map the 802.3Q priority to the given rxq id for that port in the QoS table */
+static void mvpp22_qos_set_8023q_to_rxq(struct mvpp2_port *port, int lu_type,
+					u8 vlan_pri, u8 rxq)
+{
+	/* Select the QoS table and the row we write to */
+	mvpp2_write(port->priv, MVPP22_CLS_QOS_IDX,
+		    MVPP22_CLS_QOS_TBL_NO(MVPP22_CLS_C2_QOS_TBL(port->id, lu_type)) |
+		    MVPP22_CLS_QOS_PRI_IDX(vlan_pri));
+	/* Map rxq to 802.3Q priority */
+	mvpp2_write(port->priv, MVPP22_CLS_QOS,
+		    MVPP22_CLS_QOS_RXQ(port->first_rxq + rxq) |
+		    MVPP22_CLS_QOS_PRI(vlan_pri));
 }
 
 /* Adds a field to the Header Extracted Key generation parameters*/
@@ -871,12 +892,64 @@ static void mvpp2_cls_port_init_flows(struct mvpp2 *priv)
 	}
 }
 
+static void mvpp2_port_c2_cls_init_qos(struct mvpp2_port *port, int lu_type)
+{
+	struct mvpp2_cls_c2_entry c2;
+	int pri;
+
+	memset(&c2, 0, sizeof(c2));
+	c2.index = mvpp2_cls_c2_port_flow_index(port, lu_type,
+						MVPP22_CLS_C2_PORT_N_RFS);
+	if (c2.index < 0)
+		return;
+
+	/* Leave the port map empty at init so that this entry doesn't match
+	 * by default
+	 */
+	c2.tcam[4] = MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(0x7));
+
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(lu_type);
+
+	/* Mark packet as "forwarded to software". If match, update and lock
+	 * the dest rxq that we recovered from the QoS table so that the RSS
+	 * lookup doesn't override it.
+	 */
+	c2.act = MVPP22_CLS_C2_ACT_FWD(MVPP22_C2_FWD_SW_LOCK) |
+		 MVPP22_CLS_C2_ACT_QHIGH(MVPP22_C2_UPD_LOCK) |
+		 MVPP22_CLS_C2_ACT_QLOW(MVPP22_C2_UPD_LOCK);
+
+	/* Extract rxq from the QoS table lookup */
+	c2.act_table = MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(
+				MVPP22_CLS_C2_QOS_TBL(port->id, lu_type)) |
+		       MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL |
+		       MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL |
+		       MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL;
+
+	c2.valid = true;
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+
+	/* Fill the table with default values */
+	for (pri = 0; pri <= 7; pri++)
+		mvpp22_qos_set_8023q_to_rxq(port, lu_type, pri, 0);
+
+}
+
 static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 {
 	struct mvpp2_cls_c2_entry c2;
 	u8 qh, ql, pmap;
 
 	memset(&c2, 0, sizeof(c2));
+
+	/* Do that for each flow */
+	mvpp2_port_c2_cls_init_qos(port, TCP_V4_FLOW);
+	mvpp2_port_c2_cls_init_qos(port, TCP_V6_FLOW);
+	mvpp2_port_c2_cls_init_qos(port, UDP_V4_FLOW);
+	mvpp2_port_c2_cls_init_qos(port, UDP_V6_FLOW);
+	mvpp2_port_c2_cls_init_qos(port, IPV4_FLOW);
+	mvpp2_port_c2_cls_init_qos(port, IPV6_FLOW);
 
 	c2.index = MVPP22_CLS_C2_RSS_ENTRY(port->id);
 
@@ -1054,6 +1127,28 @@ int mvpp22_port_rss_disable(struct mvpp2_port *port)
 	return 0;
 }
 
+/* We use a scheme where only one port can use a given C2 entry, so no need to
+ * use the matching pattern allowing to match multiple ports with one entry.
+ */
+static void mvpp22_port_c2_lookup_enable(struct mvpp2_port *port, int entry)
+{
+	struct mvpp2_cls_c2_entry c2;
+	u8 pmap;
+
+	mvpp2_cls_c2_read(port->priv, entry, &c2);
+
+	/* Simply add the port to the pmap of this entry, to enable it */
+	pmap = BIT(port->id);
+
+	c2.tcam[4] &= ~MVPP22_CLS_C2_PORT_ID(0xf);
+	c2.tcam[4] &= ~MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(0xf));
+
+	c2.tcam[4] |= MVPP22_CLS_C2_PORT_ID(pmap);
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(pmap));
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+}
+
 static void mvpp22_port_c2_lookup_disable(struct mvpp2_port *port, int entry)
 {
 	struct mvpp2_cls_c2_entry c2;
@@ -1080,6 +1175,55 @@ void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 	val = mvpp2_read(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG);
 	val |= MVPP2_CLS_SWFWD_PCTRL_MASK(port->id);
 	mvpp2_write(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG, val);
+}
+
+static int mvpp2_port_c2_qos_rule_add(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	struct flow_action_entry *act;
+
+	act = &rule->flow->action.entries[0];
+
+	/* The special case "QoS lookup" has a pre-defined index */
+	rule->c2_index = mvpp2_cls_c2_port_flow_index(port, rule->lu_type,
+						      rule->loc);
+	if (rule->c2_index < 0)
+		return -EINVAL;
+
+	mvpp22_port_c2_lookup_enable(port, rule->c2_index);
+	mvpp22_qos_set_8023q_to_rxq(port, rule->lu_type, rule->pri, act->queue.index);
+
+	return 0;
+}
+
+static int mvpp2_port_c2_qos_rule_del(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	bool last = true;
+	int i;
+
+	for (i = 0; i <= 7; i++) {
+		if (i == rule->loc)
+			continue;
+
+		if (port->rfs_rules[i]) {
+			last = false;
+			break;
+		}
+	}
+
+	/* The special case "QoS lookup" has a pre-defined index */
+	rule->c2_index = mvpp2_cls_c2_port_flow_index(port, rule->lu_type,
+						      rule->loc);
+	if (rule->c2_index < 0)
+		return -EINVAL;
+
+	if (last)
+		mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+	else
+		mvpp22_qos_set_8023q_to_rxq(port, rule->lu_type, rule->pri, 0);
+
+	return 0;
 }
 
 static int mvpp2_port_c2_tcam_rule_add(struct mvpp2_port *port,
@@ -1155,7 +1299,16 @@ static int mvpp2_port_c2_tcam_rule_add(struct mvpp2_port *port,
 static int mvpp2_port_c2_rfs_rule_insert(struct mvpp2_port *port,
 					 struct mvpp2_rfs_rule *rule)
 {
-	return mvpp2_port_c2_tcam_rule_add(port, rule);
+	int ret = 0;
+
+	if (rule->flags & MVPP2_RFS_F_VLAN_QOS) {
+		ret = mvpp2_port_c2_qos_rule_add(port, rule);
+	} else {
+		ret = mvpp2_port_c2_tcam_rule_add(port, rule);
+	}
+
+	return ret;
+
 }
 
 static int mvpp2_port_flow_table_find(struct mvpp2 *priv, int flow_id, u8 engine,
@@ -1241,8 +1394,14 @@ static int mvpp2_port_cls_rfs_rule_remove(struct mvpp2_port *port,
 		mvpp2_cls_flow_write(port->priv, &fe);
 	}
 
-	if (rule->c2_index >= 0)
-		mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+	if (rule->c2_index >= 0) {
+
+		if (rule->flags & MVPP2_RFS_F_VLAN_QOS) {
+			mvpp2_port_c2_qos_rule_del(port, rule);
+		} else {
+			mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+		}
+	}
 
 	return 0;
 }
@@ -1319,6 +1478,11 @@ static int mvpp2_cls_c2_build_match(struct mvpp2_rfs_rule *rule)
 
 			rule->c2_tcam |= ((u64)match.key->vlan_priority) << offs;
 			rule->c2_tcam_mask |= ((u64)match.mask->vlan_priority) << offs;
+
+			if (match.mask->vlan_priority == 0xf && !act->queue.ctx) {
+				rule->flags |= MVPP2_RFS_F_VLAN_QOS;
+				rule->pri = match.key->vlan_priority;
+			}
 		}
 
 		if (match.mask->vlan_id) {
@@ -1354,6 +1518,9 @@ static int mvpp2_cls_c2_build_match(struct mvpp2_rfs_rule *rule)
 	if (hweight16(rule->hek_fields) > MVPP2_FLOW_N_FIELDS)
 		return -EOPNOTSUPP;
 
+	if (rule->hek_fields != MVPP22_CLS_HEK_OPT_VLAN_PRI)
+		rule->flags &= ~MVPP2_RFS_F_VLAN_QOS;
+
 	return 0;
 }
 
@@ -1372,6 +1539,22 @@ static int mvpp2_cls_rfs_parse_rule(struct mvpp2_rfs_rule *rule)
 
 	if (mvpp2_cls_c2_build_match(rule))
 		return -EINVAL;
+
+	/* Special case : We use QoS tables when steering to a queue based on
+	 * VLAN PRI. This requires setting a special field in the HEK.
+	 */
+	if (rule->flags & MVPP2_RFS_F_VLAN_QOS) {
+		/* The last 8 locations are dedicated to VLAN PRI QoS. There
+		 * are 8 possible priorities, but we only use 1 physical entry
+		 * for this by using the QoS tables.
+		 */
+		if (rule->loc < 7)
+			return -EINVAL;
+
+	} else {
+		if (rule->loc >= 7)
+			return -EINVAL;
+	}
 
 	return 0;
 }
@@ -1402,7 +1585,7 @@ int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
 	int ret = 0, index;
 
 	/* TODO magic value */
-	if (info->fs.location >= 7 || info->fs.location < 0)
+	if (info->fs.location >= 14 || info->fs.location < 0)
 		return -EINVAL;
 
 	efs = kzalloc(sizeof(*efs), GFP_KERNEL);

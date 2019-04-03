@@ -104,6 +104,8 @@ struct mvpp2_cls_c2_entry {
 	u32 index;
 	/* TCAM lookup key */
 	u32 tcam[MVPP2_CLS_C2_TCAM_WORDS];
+	/* QoS table lookup configuration */
+	u32 act_table;
 	/* Actions to perform upon TCAM match */
 	u32 act;
 	/* Attributes relative to the actions to perform */
@@ -136,6 +138,8 @@ enum mvpp2_lu_type {
 /* We have one C2 range per supported flow type : ip4, i6, tcp4, tcp6, udp4, udp6 */
 #define MVPP22_CLS_C2_PORT_N_FLOWS	(MVPP22_FLOW_LAST)
 
+#define MVPP22_CLS_C2_QOS_TBL(p, flow)	((p) * MVPP22_CLS_C2_PORT_N_FLOWS + (flow) - 1)
+
 /* Each port has oen range per flow type + one entry controling the global RSS
  * setting and the default rx queue
  */
@@ -148,6 +152,7 @@ enum mvpp2_lu_type {
 #define MVPP22_CLS_C2_PORT_FLOW_FIRST(p, f)	(MVPP22_CLS_C2_PORT_FIRST(p) + \
 						 ((f) - 1) * MVPP22_CLS_C2_PORT_FLOW_RANGE)
 
+#define MVPP22_CLS_C2_QOS_ENTRY(p, f)	(MVPP22_CLS_C2_PORT_FLOW_FIRST(p, (f) + 1) - 1)
 #define MVPP22_CLS_C2_RFS_LOC(p, f, loc)	(MVPP22_CLS_C2_PORT_FLOW_FIRST(p, f) + (loc))
 
 /* Packet flow ID */

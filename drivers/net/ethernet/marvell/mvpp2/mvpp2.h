@@ -130,6 +130,19 @@
 #define     MVPP22_CLS_C2_PORT_MASK		(0xff << 8)
 #define MVPP22_CLS_C2_TCAM_INV			0x1b24
 #define     MVPP22_CLS_C2_TCAM_INV_BIT		BIT(31)
+#define MVPP22_CLS_C2_ACT_TABLE			0x1b30
+#define MVPP22_CLS_C2_ACT_TABLE_QHI_FROM_TBL	BIT(10)
+#define MVPP22_CLS_C2_ACT_TABLE_QLO_FROM_TBL	BIT(9)
+#define MVPP22_CLS_C2_ACT_TABLE_PRI_FROM_TBL	BIT(7)
+#define MVPP22_CLS_C2_ACT_TABLE_DSCP_SEL	BIT(6)
+#define MVPP22_CLS_C2_ACT_TABLE_QOS_TBL(tbl)	((tbl) & 0x3f)
+#define MVPP22_CLS_QOS_IDX			0x1b40
+#define	    MVPP22_CLS_QOS_TBL_NO(no)		(((no) & 0x3f) << 8)
+#define     MVPP22_CLS_QOS_DSCP_SEL		BIT(6)
+#define     MVPP22_CLS_QOS_PRI_IDX(idx)		((idx) & 0x7)
+#define MVPP22_CLS_QOS				0x1b44
+#define     MVPP22_CLS_QOS_RXQ(rxq)		(((rxq) & 0xff) << 24)
+#define     MVPP22_CLS_QOS_PRI(pri)		((pri) & 0x7)
 #define MVPP22_CLS_C2_HIT_CTR			0x1b50
 #define MVPP22_CLS_C2_ACT			0x1b60
 #define     MVPP22_CLS_C2_ACT_RSS_EN(act)	(((act) & 0x3) << 19)
@@ -823,6 +836,8 @@ struct mvpp2_queue_vector {
 	struct cpumask *mask;
 };
 
+#define MVPP2_RFS_F_VLAN_QOS	BIT(0)
+
 /* Internal represention of an Accelerated Resource Flow Steering flow.
  *
  * This struct is expected to grow as we add more RFS features.
@@ -854,8 +869,14 @@ struct mvpp2_rfs_rule {
 	/* Header fields that needs to be extracted to match this flow */
 	u16 hek_fields;
 
+	/* Flags for non-TCAM matches, such as priority-based steering. */
+	u16 flags;
+
 	/* CLS engine : only c2 is supported for now. */
 	u8 engine;
+
+	/* VLAN priority */
+	u8 pri;
 
 	struct flow_rule *flow;
 };
