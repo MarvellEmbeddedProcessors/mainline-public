@@ -448,11 +448,28 @@ static void mvpp2_cls_flow_port_add(struct mvpp2_cls_flow_entry *fe,
 	fe->data[0] |= MVPP2_CLS_FLOW_TBL0_PORT_ID(port);
 }
 
+static void mvpp2_cls_flow_port_remove(struct mvpp2_cls_flow_entry *fe,
+				       u32 port)
+{
+	fe->data[0] &= ~MVPP2_CLS_FLOW_TBL0_PORT_ID(port);
+}
+
+static u8 mvpp2_cls_flow_pmap_get(struct mvpp2_cls_flow_entry *fe)
+{
+	return (fe->data[0] >> 4) & MVPP2_CLS_FLOW_TBL0_PORT_ID_MASK;
+}
+
 static void mvpp2_cls_flow_lu_type_set(struct mvpp2_cls_flow_entry *fe,
 				       u8 lu_type)
 {
 	fe->data[1] &= ~MVPP2_CLS_FLOW_TBL1_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK);
 	fe->data[1] |= MVPP2_CLS_FLOW_TBL1_LU_TYPE(lu_type);
+}
+
+static u8 mvpp2_cls_flow_lu_type_get(struct mvpp2_cls_flow_entry *fe)
+{
+	return (fe->data[1] &
+		MVPP2_CLS_FLOW_TBL1_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK)) >> 3;
 }
 
 /* Initialize the parser entry for the given flow */
@@ -539,6 +556,35 @@ void mvpp2_cls_c2_read(struct mvpp2 *priv, int index,
 	c2->valid = !(val & MVPP22_CLS_C2_TCAM_INV_BIT);
 }
 
+static int mvpp2_cls_c2_port_flow_get_type(int flow_type)
+{
+	switch (flow_type) {
+	case TCP_V4_FLOW:
+		return MVPP22_FLOW_TCP4;
+	case TCP_V6_FLOW:
+		return MVPP22_FLOW_TCP6;
+	case UDP_V4_FLOW:
+		return MVPP22_FLOW_UDP4;
+	case UDP_V6_FLOW:
+		return MVPP22_FLOW_UDP6;
+	case IPV4_FLOW:
+		return MVPP22_FLOW_IP4;
+	case IPV6_FLOW:
+		return MVPP22_FLOW_IP6;
+	default:
+		return -EOPNOTSUPP;
+	}
+}
+
+static int mvpp2_cls_c2_port_flow_index(struct mvpp2_port *port, int lu_type,
+					int loc)
+{
+	if (loc >= MVPP22_CLS_C2_PORT_N_RFS)
+		return -EINVAL;
+
+	return MVPP22_CLS_C2_RFS_LOC(port->id, lu_type, loc);
+}
+
 /* Initialize the flow table entries for the given flow */
 static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 				const struct mvpp2_cls_flow *flow)
@@ -565,7 +611,7 @@ static void mvpp2_cls_flow_init(struct mvpp2 *priv,
 
 	mvpp2_cls_flow_eng_set(&fe, MVPP22_CLS_ENGINE_C2);
 	mvpp2_cls_flow_port_id_sel(&fe, true);
-	mvpp2_cls_flow_lu_type_set(&fe, MVPP2_CLS_LU_ALL);
+	mvpp2_cls_flow_lu_type_set(&fe, MVPP22_FLOW_ETHER);
 
 	/* Add all ports */
 	for (i = 0; i < MVPP2_MAX_PORTS; i++)
@@ -650,6 +696,25 @@ static int mvpp2_flow_set_hek_fields(struct mvpp2_cls_flow_entry *fe,
 	}
 
 	return 0;
+}
+
+/* Returns the size, in bits, of the corresponding HEK field */
+static int mvpp2_cls_hek_field_size(u32 field) {
+	switch(field) {
+	case MVPP22_CLS_HEK_OPT_MAC_DA:
+		return 48;
+	case MVPP22_CLS_HEK_OPT_IP4SA:
+	case MVPP22_CLS_HEK_OPT_IP4DA:
+		return 32;
+	case MVPP22_CLS_HEK_OPT_IP6SA:
+	case MVPP22_CLS_HEK_OPT_IP6DA:
+		return 128;
+	case MVPP22_CLS_HEK_OPT_L4SIP:
+	case MVPP22_CLS_HEK_OPT_L4DIP:
+		return 16;
+	default:
+		return -1;
+	}
 }
 
 const struct mvpp2_cls_flow *mvpp2_cls_flow_get(int flow)
@@ -810,7 +875,7 @@ static void mvpp2_port_c2_cls_init(struct mvpp2_port *port)
 
 	/* Match on Lookup Type */
 	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
-	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_ALL);
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(MVPP22_FLOW_ETHER);
 
 	/* Update RSS status after matching this entry */
 	c2.act = MVPP22_CLS_C2_ACT_RSS_EN(MVPP22_C2_UPD_LOCK);
@@ -978,6 +1043,18 @@ int mvpp22_port_rss_disable(struct mvpp2_port *port)
 	return 0;
 }
 
+static void mvpp22_port_c2_lookup_disable(struct mvpp2_port *port, int entry)
+{
+	struct mvpp2_cls_c2_entry c2;
+
+	mvpp2_cls_c2_read(port->priv, entry, &c2);
+
+	/* Clear the port map so that the entry doesn't match anymore */
+	c2.tcam[4] &= ~(MVPP22_CLS_C2_PORT_ID(BIT(port->id)));
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+}
+
 /* Set CPU queue number for oversize packets */
 void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 {
@@ -992,6 +1069,381 @@ void mvpp2_cls_oversize_rxq_set(struct mvpp2_port *port)
 	val = mvpp2_read(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG);
 	val |= MVPP2_CLS_SWFWD_PCTRL_MASK(port->id);
 	mvpp2_write(port->priv, MVPP2_CLS_SWFWD_PCTRL_REG, val);
+}
+
+static int mvpp2_port_c2_tcam_rule_add(struct mvpp2_port *port,
+				       struct mvpp2_rfs_rule *rule)
+{
+	struct flow_action_entry *act;
+	struct mvpp2_cls_c2_entry c2;
+	u8 qh, ql, pmap;
+	int ctx;
+
+	memset(&c2, 0, sizeof(c2));
+
+	c2.index = mvpp2_cls_c2_port_flow_index(port, rule->lu_type, rule->loc);
+	if (c2.index < 0)
+		return -EINVAL;
+
+	act = &rule->flow->action.entries[0];
+
+	rule->c2_index = c2.index;
+
+	c2.tcam[0] = (rule->c2_tcam & 0xffff) |
+		     ((rule->c2_tcam_mask & 0xffff) << 16);
+	c2.tcam[1] = ((rule->c2_tcam >> 16) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 16) & 0xffff) << 16);
+	c2.tcam[2] = ((rule->c2_tcam >> 32) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 32) & 0xffff) << 16);
+	c2.tcam[3] = ((rule->c2_tcam >> 48) & 0xffff) |
+		     (((rule->c2_tcam_mask >> 48) & 0xffff) << 16);
+
+	pmap = BIT(port->id);
+	c2.tcam[4] = MVPP22_CLS_C2_PORT_ID(pmap);
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_PORT_ID(pmap));
+
+	/* Match on Lookup Type */
+	c2.tcam[4] |= MVPP22_CLS_C2_TCAM_EN(MVPP22_CLS_C2_LU_TYPE(MVPP2_CLS_LU_TYPE_MASK));
+	c2.tcam[4] |= MVPP22_CLS_C2_LU_TYPE(rule->lu_type);
+
+	/* Update RSS status after matching this entry */
+	if (act->queue.ctx) {
+		c2.act = MVPP22_CLS_C2_ACT_RSS_EN(MVPP22_C2_UPD_LOCK);
+		c2.attr[2] |= MVPP22_CLS_C2_ATTR2_RSS_EN;
+	}
+
+	/* Mark packet as "forwarded to software", needed for RSS */
+	c2.act |= MVPP22_CLS_C2_ACT_FWD(MVPP22_C2_FWD_SW_LOCK);
+
+	c2.act |= MVPP22_CLS_C2_ACT_QHIGH(MVPP22_C2_UPD_LOCK) |
+		   MVPP22_CLS_C2_ACT_QLOW(MVPP22_C2_UPD_LOCK);
+
+	if (act->queue.ctx) {
+		/* Get the global ctx number */
+		ctx = mvpp22_rss_ctx(port, act->queue.ctx);
+		if (ctx < 0)
+			return -EINVAL;
+
+		qh = (ctx >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+		ql = ctx & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+	} else {
+		qh = ((act->queue.index + port->first_rxq) >> 3) & MVPP22_CLS_C2_ATTR0_QHIGH_MASK;
+		ql = (act->queue.index + port->first_rxq) & MVPP22_CLS_C2_ATTR0_QLOW_MASK;
+	}
+
+	c2.attr[0] = MVPP22_CLS_C2_ATTR0_QHIGH(qh) |
+		      MVPP22_CLS_C2_ATTR0_QLOW(ql);
+
+	c2.valid = true;
+
+	mvpp2_cls_c2_write(port->priv, &c2);
+
+	return 0;
+}
+
+static int mvpp2_port_c2_rfs_rule_insert(struct mvpp2_port *port,
+					 struct mvpp2_rfs_rule *rule)
+{
+	return mvpp2_port_c2_tcam_rule_add(port, rule);
+}
+
+static int mvpp2_port_flow_table_find(struct mvpp2 *priv, int flow_id, u8 engine,
+				      u8 lu_type, u16 hek_fields)
+{
+	struct mvpp2_cls_flow_entry fe;
+	u16 flow_hek_fields;
+	int i, flow_engine;
+	u8 flow_lu_type;
+
+	/* Iterate on all flow table entries for this ID */
+	for (i = MVPP2_CLS_FLT_FIRST(flow_id);
+	     i < MVPP2_CLS_FLT_LAST(flow_id); i++) {
+
+		mvpp2_cls_flow_read(priv, i, &fe);
+
+		flow_hek_fields = mvpp2_flow_get_hek_fields(&fe);
+		if (flow_hek_fields != hek_fields)
+			continue;
+
+		flow_engine = mvpp2_cls_flow_eng_get(&fe);
+		if (flow_engine != engine)
+			continue;
+
+		flow_lu_type = mvpp2_cls_flow_lu_type_get(&fe);
+		if (flow_lu_type != lu_type)
+			continue;
+
+		return i;
+	}
+
+	return -1;
+}
+
+static int mvpp2_port_flow_table_find_free(struct mvpp2 *priv, int flow_id)
+{
+	struct mvpp2_cls_flow_entry fe;
+	int i;
+	u8 pmap;
+
+	memset(&fe, 0, sizeof(fe));
+	for (i = 0; i < MVPP2_N_RFS_ENTRIES; i++) {
+		mvpp2_cls_flow_read(priv, MVPP2_CLS_FLT_C2_RFS(flow_id, i), &fe);
+
+		/* get pmap */
+		pmap = mvpp2_cls_flow_pmap_get(&fe);
+		if (!pmap)
+			return MVPP2_CLS_FLT_C2_RFS(flow_id, i);
+	}
+
+	return -1;
+}
+
+static bool mvpp2_port_flt_has_siblings(struct mvpp2_port *port,
+					struct mvpp2_rfs_rule *rule)
+{
+	struct mvpp2_ethtool_fs *efs;
+	int i;
+
+	for (i = 0; i <= MVPP2_N_RFS_RULES; i++) {
+		efs = port->rfs_rules[i];
+		if (!efs)
+			continue;
+		/* Skip the entry we are trying to find the sibling of */
+		if (efs->rule.loc == rule->loc)
+			continue;
+		if (efs->rule.flt_index == rule->flt_index)
+			return true;
+	}
+
+	return false;
+}
+
+static int mvpp2_port_cls_rfs_rule_remove(struct mvpp2_port *port,
+					  struct mvpp2_rfs_rule *rule)
+{
+	struct mvpp2_cls_flow_entry fe;
+
+	if (rule->flt_index >= 0 &&
+	    !mvpp2_port_flt_has_siblings(port, rule)) {
+		mvpp2_cls_flow_read(port->priv, rule->flt_index, &fe);
+		mvpp2_cls_flow_port_remove(&fe, BIT(port->id));
+		mvpp2_cls_flow_write(port->priv, &fe);
+	}
+
+	if (rule->c2_index >= 0)
+		mvpp22_port_c2_lookup_disable(port, rule->c2_index);
+
+	return 0;
+}
+
+static int mvpp2_port_flt_rfs_rule_insert(struct mvpp2_port *port,
+				      struct mvpp2_rfs_rule *rule)
+{
+	const struct mvpp2_cls_flow *flow;
+	struct mvpp2_cls_flow_entry fe;
+	struct mvpp2 *priv = port->priv;
+	int index, ret, i;
+
+	if (rule->engine != MVPP22_CLS_ENGINE_C2)
+		return -EOPNOTSUPP;
+
+	ret = mvpp2_port_c2_rfs_rule_insert(port, rule);
+	if (ret)
+		return ret;
+
+	for_each_cls_flow_id_with_type(i, rule->flow_type) {
+		flow = mvpp2_cls_flow_get(i);
+		if (!flow)
+			return 0;
+
+		index = mvpp2_port_flow_table_find(priv, flow->flow_id,
+						   rule->engine, rule->lu_type,
+						   rule->hek_fields);
+
+		/* If there already is a flow entry that matches our parameters */
+		if (index >= 0) {
+			rule->flt_index = index;
+			mvpp2_cls_flow_read(priv, index, &fe);
+			mvpp2_cls_flow_port_add(&fe, BIT(port->id));
+			mvpp2_cls_flow_write(priv, &fe);
+			continue;
+		} else {
+			index = mvpp2_port_flow_table_find_free(priv,
+								flow->flow_id);
+			if (index < 0)
+				return -EOPNOTSUPP;
+		}
+
+		/* Create entry */
+		rule->flt_index = index;
+		mvpp2_cls_flow_read(priv, index, &fe);
+
+		mvpp2_cls_flow_eng_set(&fe, rule->engine);
+		mvpp2_cls_flow_port_id_sel(&fe, true);
+		mvpp2_flow_set_hek_fields(&fe, rule->hek_fields);
+		mvpp2_cls_flow_lu_type_set(&fe, rule->lu_type);
+		mvpp2_cls_flow_port_add(&fe, 0xf);
+
+		mvpp2_cls_flow_write(priv, &fe);
+	}
+
+	return 0;
+}
+
+static int mvpp2_cls_c2_build_match(struct mvpp2_rfs_rule *rule)
+{
+	struct flow_rule *flow = rule->flow;
+	struct flow_action_entry *act;
+	int offs = 64;
+
+	act = &flow->action.entries[0];
+
+	if (flow_rule_match_key(flow, FLOW_DISSECTOR_KEY_PORTS)) {
+		struct flow_match_ports match;
+
+		flow_rule_match_ports(flow, &match);
+		if (match.mask->src) {
+			rule->hek_fields |= MVPP22_CLS_HEK_OPT_L4SIP;
+			offs -= mvpp2_cls_hek_field_size(MVPP22_CLS_HEK_OPT_L4SIP);
+
+			rule->c2_tcam |= ((u64)ntohs(match.key->src)) << offs;
+			rule->c2_tcam_mask |= ((u64)ntohs(match.mask->src)) << offs;
+		}
+
+		if (match.mask->dst) {
+			rule->hek_fields |= MVPP22_CLS_HEK_OPT_L4DIP;
+			offs -= mvpp2_cls_hek_field_size(MVPP22_CLS_HEK_OPT_L4DIP);
+
+			rule->c2_tcam |= ((u64)ntohs(match.key->dst)) << offs;
+			rule->c2_tcam_mask |= ((u64)ntohs(match.mask->dst)) << offs;
+		}
+	}
+
+	if (hweight16(rule->hek_fields) > MVPP2_FLOW_N_FIELDS)
+		return -EOPNOTSUPP;
+
+	return 0;
+}
+
+static int mvpp2_cls_rfs_parse_rule(struct mvpp2_rfs_rule *rule)
+{
+	struct flow_rule *flow = rule->flow;
+	struct flow_action_entry *act;
+
+	act = &flow->action.entries[0];
+	if (act->id != FLOW_ACTION_QUEUE)
+		return -EOPNOTSUPP;
+
+	/* For now, only use the C2 engine which has a HEK size limited to 64
+	 * bits for TCAM matching.*/
+	rule->engine = MVPP22_CLS_ENGINE_C2;
+
+	if (mvpp2_cls_c2_build_match(rule))
+		return -EINVAL;
+
+	return 0;
+}
+
+int mvpp2_ethtool_cls_rule_get(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *rxnfc)
+{
+	struct mvpp2_ethtool_fs *efs;
+
+	if (rxnfc->fs.location >= MVPP2_N_RFS_RULES)
+		return -EINVAL;
+
+	efs = port->rfs_rules[rxnfc->fs.location];
+	if (!efs)
+		return -ENOENT;
+
+	memcpy(rxnfc, &efs->rxnfc, sizeof(efs->rxnfc));
+
+	return 0;
+}
+
+int mvpp2_ethtool_cls_rule_ins(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info)
+{
+	struct ethtool_rx_flow_spec_input input = {};
+	struct mvpp2_ethtool_fs *efs, *old_efs;
+	struct ethtool_rx_flow_rule *ethtool_rule;
+	int ret = 0, index;
+
+	/* TODO magic value */
+	if (info->fs.location >= 7 || info->fs.location < 0)
+		return -EINVAL;
+
+	efs = kzalloc(sizeof(*efs), GFP_KERNEL);
+	if (!efs)
+		return -ENOMEM;
+
+	input.fs = &info->fs;
+
+	ethtool_rule = ethtool_rx_flow_rule_create(&input);
+	if (IS_ERR(ethtool_rule)) {
+		ret = PTR_ERR(ethtool_rule);
+		goto clean_rule;
+	}
+
+	efs->rule.flow = ethtool_rule->rule;
+	efs->rule.flow_type = info->fs.flow_type & ~(FLOW_EXT | FLOW_MAC_EXT | FLOW_RSS);
+	efs->rule.lu_type = mvpp2_cls_c2_port_flow_get_type(efs->rule.flow_type);
+
+	ret = mvpp2_cls_rfs_parse_rule(&efs->rule);
+	if (ret)
+		goto clean_eth_rule;
+
+	efs->rule.loc = info->fs.location;
+
+	index = (efs->rule.lu_type - 1) * MVPP22_CLS_C2_PORT_N_FLOWS +
+		efs->rule.loc;
+
+	/* Replace an already existing rule */
+	if (port->rfs_rules[index]) {
+		old_efs = port->rfs_rules[index];
+		ret = mvpp2_port_cls_rfs_rule_remove(port, &old_efs->rule);
+		if (ret)
+			goto clean_eth_rule;
+		kfree(old_efs);
+	}
+
+	ret = mvpp2_port_flt_rfs_rule_insert(port, &efs->rule);
+	if (ret)
+		goto clean_eth_rule;
+
+	info->fs.location = index;
+
+	memcpy(&efs->rxnfc, info, sizeof(*info));
+	port->rfs_rules[index] = efs;
+	port->n_rfs_rules++;
+
+clean_eth_rule:
+	ethtool_rx_flow_rule_destroy(ethtool_rule);
+clean_rule:
+	kfree(efs);
+	return ret;
+}
+
+int mvpp2_ethtool_cls_rule_del(struct mvpp2_port *port,
+			       struct ethtool_rxnfc *info)
+{
+	struct mvpp2_ethtool_fs *efs;
+	int ret;
+
+	efs = port->rfs_rules[info->fs.location];
+	if (!efs)
+		return -EINVAL;
+
+	/* Remove the rule from the engines. */
+	ret = mvpp2_port_cls_rfs_rule_remove(port, &efs->rule);
+	if (ret)
+		return ret;
+
+	port->n_rfs_rules--;
+	port->rfs_rules[info->fs.location] = NULL;
+	kfree(efs);
+
+	return 0;
 }
 
 static inline u32 mvpp22_rxfh_indir(struct mvpp2_port *port, u32 rxq)

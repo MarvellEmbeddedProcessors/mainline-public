@@ -14,6 +14,7 @@
 #include <linux/netdevice.h>
 #include <linux/phy.h>
 #include <linux/phylink.h>
+#include <net/flow_offload.h>
 
 /* Fifo Registers */
 #define MVPP2_RX_DATA_FIFO_SIZE_REG(port)	(0x00 + 4 * (port))
@@ -126,6 +127,7 @@
 #define MVPP22_CLS_C2_TCAM_DATA4		0x1b20
 #define     MVPP22_CLS_C2_LU_TYPE(lu)		((lu) & 0x3f)
 #define     MVPP22_CLS_C2_PORT_ID(port)		((port) << 8)
+#define     MVPP22_CLS_C2_PORT_MASK		(0xff << 8)
 #define MVPP22_CLS_C2_TCAM_INV			0x1b24
 #define     MVPP22_CLS_C2_TCAM_INV_BIT		BIT(31)
 #define MVPP22_CLS_C2_HIT_CTR			0x1b50
@@ -615,6 +617,7 @@
 #define MVPP2_BIT_IN_WORD(bit)		((bit) % 32)
 
 #define MVPP2_N_PRS_FLOWS		52
+#define MVPP2_N_RFS_RULES		(14 * 7)
 
 /* RSS constants */
 #define MVPP22_N_RSS_TABLES		8
@@ -820,6 +823,48 @@ struct mvpp2_queue_vector {
 	struct cpumask *mask;
 };
 
+/* Internal represention of an Accelerated Resource Flow Steering flow.
+ *
+ * This struct is expected to grow as we add more RFS features.
+ */
+struct mvpp2_rfs_rule {
+
+	/* Rule location inside the flow*/
+	int loc;
+
+	/* Flow type, from ethtool. Can also take special values, such as
+	 * MVPP2_CLS_ALL_FLOWS and MVPP2_CLS_TAGGED_ONLY.
+	 */
+	int flow_type;
+
+	int lu_type;
+
+	/* Index of the entry handling this rule in the flow table */
+	int flt_index;
+
+	/* Index of the C2 TCAM entry handling this rule */
+	int c2_index;
+
+	/* TCAM key and mask for C2-based steering. These fields should be
+	 * encapsulated in a union should we add more engines.
+	 */
+	u64 c2_tcam;
+	u64 c2_tcam_mask;
+
+	/* Header fields that needs to be extracted to match this flow */
+	u16 hek_fields;
+
+	/* CLS engine : only c2 is supported for now. */
+	u8 engine;
+
+	struct flow_rule *flow;
+};
+
+struct mvpp2_ethtool_fs {
+	struct mvpp2_rfs_rule rule;
+	struct ethtool_rxnfc rxnfc;
+};
+
 struct mvpp2_port {
 	u8 id;
 
@@ -893,6 +938,10 @@ struct mvpp2_port {
 	 * them from 0
 	 */
 	int rss_ctx[MVPP22_N_RSS_TABLES];
+
+	/* List of steering rules active on that port */
+	struct mvpp2_ethtool_fs *rfs_rules[MVPP2_N_RFS_RULES];
+	int n_rfs_rules;
 };
 
 /* The mvpp2_tx_desc and mvpp2_rx_desc structures describe the
