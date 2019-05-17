@@ -177,9 +177,13 @@
 
 #define PIO_TIMEOUT_MS			1
 
+/* Endpoint can take up to 100ms to be ready after a reset */
+#define ENDPOINT_RST_MS			100
+
 #define LINK_WAIT_MAX_RETRIES		10
 #define LINK_WAIT_USLEEP_MIN		90000
 #define LINK_WAIT_USLEEP_MAX		100000
+#define LINK_RETRAIN_DELAY_MAX		(20 * HZ / 1000) /* 20 ms */
 
 #define MSI_IRQ_NUM			32
 
@@ -199,6 +203,8 @@ struct advk_pcie {
 	u16 msi_msg;
 	int root_bus_nr;
 	struct pci_bridge_emul bridge;
+	unsigned long rl_deadline; /* Retrain link jiffies deadline */
+	u8 rl_asked; /* Retraining has been asked and is in transition */
 };
 
 static inline void advk_writel(struct advk_pcie *pcie, u32 val, u64 reg)
@@ -239,8 +245,10 @@ static int advk_pcie_wait_for_link(struct advk_pcie *pcie)
 	return -ETIMEDOUT;
 }
 
-static void advk_pcie_setup_hw(struct advk_pcie *pcie)
+static void
+advk_pcie_setup_hw(struct advk_pcie *pcie, unsigned long ep_rdy_time)
 {
+	unsigned long now;
 	u32 reg;
 
 	/* Set to Direct mode */
@@ -324,9 +332,12 @@ static void advk_pcie_setup_hw(struct advk_pcie *pcie)
 	reg |= PIO_CTRL_ADDR_WIN_DISABLE;
 	advk_writel(pcie, reg, PIO_CTRL);
 
-	/* Start link training */
+	/* Wait for endpoint to exit reset state and start link training */
 	reg = advk_readl(pcie, PCIE_CORE_LINK_CTRL_STAT_REG);
 	reg |= PCIE_CORE_LINK_TRAINING;
+	now = jiffies;
+	if (time_before(now, ep_rdy_time))
+		msleep(jiffies_to_msecs(ep_rdy_time - now));
 	advk_writel(pcie, reg, PCIE_CORE_LINK_CTRL_STAT_REG);
 
 	advk_pcie_wait_for_link(pcie);
@@ -400,6 +411,19 @@ static int advk_pcie_wait_pio(struct advk_pcie *pcie)
 	return -ETIMEDOUT;
 }
 
+static int advk_pcie_link_retraining(struct advk_pcie *pcie)
+{
+	if (!advk_pcie_link_up(pcie)) {
+		pcie->rl_asked = 0;
+		return 1;
+	}
+
+	if (pcie->rl_asked && time_before(jiffies, pcie->rl_deadline))
+		return 1;
+
+	pcie->rl_asked = 0;
+	return 0;
+}
 
 static pci_bridge_emul_read_status_t
 advk_pci_bridge_emul_pcie_conf_read(struct pci_bridge_emul *bridge,
@@ -426,11 +450,19 @@ advk_pci_bridge_emul_pcie_conf_read(struct pci_bridge_emul *bridge,
 		return PCI_BRIDGE_EMUL_HANDLED;
 	}
 
+	case PCI_EXP_LNKCTL: {
+		u32 val = advk_readl(pcie, PCIE_CORE_PCIEXP_CAP + reg) &
+			~(PCI_EXP_LNKSTA_LT << 16);
+		if (advk_pcie_link_retraining(pcie))
+			val |= (PCI_EXP_LNKSTA_LT << 16);
+		*value = val;
+		return PCI_BRIDGE_EMUL_HANDLED;
+	}
+
 	case PCI_CAP_LIST_ID:
 	case PCI_EXP_DEVCAP:
 	case PCI_EXP_DEVCTL:
 	case PCI_EXP_LNKCAP:
-	case PCI_EXP_LNKCTL:
 		*value = advk_readl(pcie, PCIE_CORE_PCIEXP_CAP + reg);
 		return PCI_BRIDGE_EMUL_HANDLED;
 	default:
@@ -447,8 +479,15 @@ advk_pci_bridge_emul_pcie_conf_write(struct pci_bridge_emul *bridge,
 
 	switch (reg) {
 	case PCI_EXP_DEVCTL:
+		advk_writel(pcie, new, PCIE_CORE_PCIEXP_CAP + reg);
+		break;
+
 	case PCI_EXP_LNKCTL:
 		advk_writel(pcie, new, PCIE_CORE_PCIEXP_CAP + reg);
+		if (new & PCI_EXP_LNKCTL_RL) {
+			pcie->rl_asked = 1;
+			pcie->rl_deadline = jiffies + LINK_RETRAIN_DELAY_MAX;
+		}
 		break;
 
 	case PCI_EXP_RTCTL:
@@ -968,7 +1007,10 @@ static int advk_pcie_probe(struct platform_device *pdev)
 	struct advk_pcie *pcie;
 	struct resource *res;
 	struct pci_host_bridge *bridge;
+	unsigned long ep_rdy_time;
 	int ret, irq;
+
+	ep_rdy_time = jiffies + msecs_to_jiffies(ENDPOINT_RST_MS);
 
 	bridge = devm_pci_alloc_host_bridge(dev, sizeof(struct advk_pcie));
 	if (!bridge)
@@ -997,7 +1039,7 @@ static int advk_pcie_probe(struct platform_device *pdev)
 		return ret;
 	}
 
-	advk_pcie_setup_hw(pcie);
+	advk_pcie_setup_hw(pcie, ep_rdy_time);
 
 	advk_sw_pci_bridge_init(pcie);
 
