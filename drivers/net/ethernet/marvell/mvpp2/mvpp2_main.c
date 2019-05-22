@@ -1931,7 +1931,8 @@ static void mvpp2_tx_time_coal_set(struct mvpp2_port *port)
 /* Free Tx queue skbuffs */
 static void mvpp2_txq_bufs_free(struct mvpp2_port *port,
 				struct mvpp2_tx_queue *txq,
-				struct mvpp2_txq_pcpu *txq_pcpu, int num)
+				struct mvpp2_txq_pcpu *txq_pcpu, int num,
+				bool in_napi)
 {
 	int i;
 
@@ -1943,7 +1944,7 @@ static void mvpp2_txq_bufs_free(struct mvpp2_port *port,
 			dma_unmap_single(port->dev->dev.parent, tx_buf->dma,
 					 tx_buf->size, DMA_TO_DEVICE);
 		if (tx_buf->skb)
-			dev_kfree_skb_any(tx_buf->skb);
+			napi_consume_skb(tx_buf->skb, in_napi);
 
 		mvpp2_txq_inc_get(txq_pcpu);
 	}
@@ -1967,7 +1968,7 @@ static inline struct mvpp2_tx_queue *mvpp2_get_tx_queue(struct mvpp2_port *port,
 
 /* Handle end of transmission */
 static void mvpp2_txq_done(struct mvpp2_port *port, struct mvpp2_tx_queue *txq,
-			   struct mvpp2_txq_pcpu *txq_pcpu)
+			   struct mvpp2_txq_pcpu *txq_pcpu, bool in_napi)
 {
 	struct netdev_queue *nq = netdev_get_tx_queue(port->dev, txq->log_id);
 	int tx_done;
@@ -1978,7 +1979,7 @@ static void mvpp2_txq_done(struct mvpp2_port *port, struct mvpp2_tx_queue *txq,
 	tx_done = mvpp2_txq_sent_desc_proc(port, txq);
 	if (!tx_done)
 		return;
-	mvpp2_txq_bufs_free(port, txq, txq_pcpu, tx_done);
+	mvpp2_txq_bufs_free(port, txq, txq_pcpu, tx_done, in_napi);
 
 	txq_pcpu->count -= tx_done;
 
@@ -1988,7 +1989,7 @@ static void mvpp2_txq_done(struct mvpp2_port *port, struct mvpp2_tx_queue *txq,
 }
 
 static unsigned int mvpp2_tx_done(struct mvpp2_port *port, u32 cause,
-				  int cpu)
+				  int cpu, bool in_napi)
 {
 	struct mvpp2_tx_queue *txq;
 	struct mvpp2_txq_pcpu *txq_pcpu;
@@ -2002,7 +2003,7 @@ static unsigned int mvpp2_tx_done(struct mvpp2_port *port, u32 cause,
 		txq_pcpu = per_cpu_ptr(txq->pcpu, cpu);
 
 		if (txq_pcpu->count) {
-			mvpp2_txq_done(port, txq, txq_pcpu);
+			mvpp2_txq_done(port, txq, txq_pcpu, in_napi);
 			tx_todo += txq_pcpu->count;
 		}
 
@@ -2323,7 +2324,8 @@ static void mvpp2_txq_clean(struct mvpp2_port *port, struct mvpp2_tx_queue *txq)
 		txq_pcpu = per_cpu_ptr(txq->pcpu, cpu);
 
 		/* Release all packets */
-		mvpp2_txq_bufs_free(port, txq, txq_pcpu, txq_pcpu->count);
+		mvpp2_txq_bufs_free(port, txq, txq_pcpu, txq_pcpu->count,
+				    false);
 
 		/* Reset queue */
 		txq_pcpu->count = 0;
@@ -2510,7 +2512,7 @@ static void mvpp2_tx_proc_cb(unsigned long data)
 
 	/* Process all the Tx queues */
 	cause = (1 << port->ntxqs) - 1;
-	tx_todo = mvpp2_tx_done(port, cause, smp_processor_id());
+	tx_todo = mvpp2_tx_done(port, cause, smp_processor_id(), false);
 
 	/* Set the timer in case not all the packets were processed */
 	if (tx_todo)
@@ -2996,7 +2998,7 @@ out:
 
 	/* Finalize TX processing */
 	if (!port->has_tx_irqs && txq_pcpu->count >= txq->done_pkts_coal)
-		mvpp2_txq_done(port, txq, txq_pcpu);
+		mvpp2_txq_done(port, txq, txq_pcpu, false);
 
 	/* Set the timer in case not all frags were processed */
 	if (!port->has_tx_irqs && txq_pcpu->count <= frags &&
@@ -3056,7 +3058,7 @@ static int mvpp2_poll(struct napi_struct *napi, int budget)
 	cause_tx = cause_rx_tx & MVPP2_CAUSE_TXQ_OCCUP_DESC_ALL_MASK;
 	if (cause_tx) {
 		cause_tx >>= MVPP2_CAUSE_TXQ_OCCUP_DESC_ALL_OFFSET;
-		mvpp2_tx_done(port, cause_tx, qv->sw_thread_id);
+		mvpp2_tx_done(port, cause_tx, qv->sw_thread_id, true);
 	}
 
 	/* Process RX packets */
