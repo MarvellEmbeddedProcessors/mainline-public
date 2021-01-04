@@ -25,6 +25,7 @@
 #include <linux/of_net.h>
 #include <linux/of_address.h>
 #include <linux/of_device.h>
+#include <linux/genalloc.h>
 #include <linux/phy.h>
 #include <linux/phylink.h>
 #include <linux/phy/phy.h>
@@ -6846,6 +6847,44 @@ static int mvpp2_init(struct platform_device *pdev, struct mvpp2 *priv)
 	return 0;
 }
 
+static int mvpp2_get_sram(struct platform_device *pdev,
+			  struct mvpp2 *priv)
+{
+	struct device_node *dn = pdev->dev.of_node;
+	static bool defer_once;
+	struct resource *res;
+
+	if (has_acpi_companion(&pdev->dev)) {
+		res = platform_get_resource(pdev, IORESOURCE_MEM, 2);
+		if (!res) {
+			dev_warn(&pdev->dev, "ACPI is too old, Flow control not supported\n");
+			return 0;
+		}
+		priv->cm3_base = devm_ioremap_resource(&pdev->dev, res);
+		if (IS_ERR(priv->cm3_base))
+			return PTR_ERR(priv->cm3_base);
+	} else {
+		priv->sram_pool = of_gen_pool_get(dn, "cm3-mem", 0);
+		if (!priv->sram_pool) {
+			if (!defer_once) {
+				defer_once = true;
+				/* Try defer once */
+				return -EPROBE_DEFER;
+			}
+			dev_warn(&pdev->dev, "DT is too old, Flow control not supported\n");
+			return -ENOMEM;
+		}
+		/* cm3_base allocated with offset zero into the SRAM since mapping size
+		 * is equal to requested size.
+		 */
+		priv->cm3_base = (void __iomem *)gen_pool_alloc(priv->sram_pool,
+								MSS_SRAM_SIZE);
+		if (!priv->cm3_base)
+			return -ENOMEM;
+	}
+	return 0;
+}
+
 static int mvpp2_probe(struct platform_device *pdev)
 {
 	const struct acpi_device_id *acpi_id;
@@ -6902,6 +6941,13 @@ static int mvpp2_probe(struct platform_device *pdev)
 		priv->iface_base = devm_ioremap_resource(&pdev->dev, res);
 		if (IS_ERR(priv->iface_base))
 			return PTR_ERR(priv->iface_base);
+
+		/* Map CM3 SRAM */
+		err = mvpp2_get_sram(pdev, priv);
+		if (err == -EPROBE_DEFER)
+			return err;
+		else if (err)
+			dev_warn(&pdev->dev, "Fail to alloc CM3 SRAM\n");
 	}
 
 	if (priv->hw_version == MVPP22 && dev_of_node(&pdev->dev)) {
@@ -6947,11 +6993,13 @@ static int mvpp2_probe(struct platform_device *pdev)
 
 	if (dev_of_node(&pdev->dev)) {
 		priv->pp_clk = devm_clk_get(&pdev->dev, "pp_clk");
-		if (IS_ERR(priv->pp_clk))
-			return PTR_ERR(priv->pp_clk);
+		if (IS_ERR(priv->pp_clk)) {
+			err = PTR_ERR(priv->pp_clk);
+			goto err_cm3;
+		}
 		err = clk_prepare_enable(priv->pp_clk);
 		if (err < 0)
-			return err;
+			goto err_cm3;
 
 		priv->gop_clk = devm_clk_get(&pdev->dev, "gop_clk");
 		if (IS_ERR(priv->gop_clk)) {
@@ -7087,6 +7135,11 @@ err_gop_clk:
 	clk_disable_unprepare(priv->gop_clk);
 err_pp_clk:
 	clk_disable_unprepare(priv->pp_clk);
+err_cm3:
+	if (priv->sram_pool && priv->cm3_base)
+		gen_pool_free(priv->sram_pool, (unsigned long)priv->cm3_base,
+			      MSS_SRAM_SIZE);
+
 	return err;
 }
 
@@ -7126,6 +7179,10 @@ static int mvpp2_remove(struct platform_device *pdev)
 				  aggr_txq->descs,
 				  aggr_txq->descs_dma);
 	}
+
+	if (priv->sram_pool && priv->cm3_base)
+		gen_pool_free(priv->sram_pool, (unsigned long)priv->cm3_base,
+			      MSS_SRAM_SIZE);
 
 	if (is_acpi_node(port_fwnode))
 		return 0;
